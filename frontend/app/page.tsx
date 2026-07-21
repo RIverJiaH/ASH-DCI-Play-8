@@ -1,102 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_EVENTS,
+  DEFAULT_TASKS,
+  optionsFor,
+  stepLabelsFor,
+  type AuditEvent,
+  type CareTask,
+  type ConfidenceDecision,
+  type ConfidenceStep,
+  type DemoState,
+  type Priority,
+  type TaskStatus,
+} from "../lib/brain-care";
 
 type View = "patient" | "nurse";
-type TaskStatus = "pending" | "accepted" | "done";
-type Priority = "high" | "medium" | "normal";
-
-type ConfidenceStep = {
-  label: string;
-  value: string;
-  confidence: number;
-};
-
-type CareTask = {
-  id: string;
-  bed: string;
-  need: string;
-  source: string;
-  priority: Priority;
-  status: TaskStatus;
-  createdAt: string;
-  steps: ConfidenceStep[];
-};
-
-type AuditEvent = {
-  id: string;
-  time: string;
-  title: string;
-  detail: string;
-};
 
 const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
-
-const DEFAULT_TASKS: CareTask[] = [
-  {
-    id: "task-a01",
-    bed: "A01",
-    need: "腹部重度持续疼痛",
-    source: "脑控确认",
-    priority: "high",
-    status: "pending",
-    createdAt: "2026-07-21T14:29:42+08:00",
-    steps: [
-      { label: "需求类型", value: "疼痛不适", confidence: 0.91 },
-      { label: "疼痛部位", value: "腹部", confidence: 0.88 },
-      { label: "程度与性质", value: "重度持续疼痛", confidence: 0.93 },
-    ],
-  },
-  {
-    id: "task-b06",
-    bed: "B06",
-    need: "需要协助调整卧位",
-    source: "脑控确认",
-    priority: "medium",
-    status: "accepted",
-    createdAt: "2026-07-21T14:26:19+08:00",
-    steps: [
-      { label: "需求类型", value: "调整体位", confidence: 0.89 },
-      { label: "处理时效", value: "尽快处理", confidence: 0.86 },
-      { label: "具体需求", value: "抬高床头", confidence: 0.9 },
-    ],
-  },
-  {
-    id: "task-c12",
-    bed: "C12",
-    need: "需要少量饮水",
-    source: "脑控确认",
-    priority: "normal",
-    status: "done",
-    createdAt: "2026-07-21T14:18:08+08:00",
-    steps: [
-      { label: "需求类型", value: "需要饮水", confidence: 0.94 },
-      { label: "处理时效", value: "稍后处理", confidence: 0.9 },
-      { label: "具体需求", value: "少量饮水", confidence: 0.92 },
-    ],
-  },
-];
-
-const DEFAULT_EVENTS: AuditEvent[] = [
-  {
-    id: "event-1",
-    time: "14:29:42",
-    title: "任务已创建",
-    detail: "A01 · 腹部重度持续疼痛",
-  },
-  {
-    id: "event-2",
-    time: "14:27:03",
-    title: "护士已接单",
-    detail: "B06 · 调整体位",
-  },
-  {
-    id: "event-3",
-    time: "14:25:18",
-    title: "任务已完成",
-    detail: "C12 · 少量饮水",
-  },
-];
 
 const FREQUENCY_LABELS = ["目标 F1", "目标 F2", "目标 F3", "目标 F4"];
 
@@ -111,31 +32,6 @@ const PRIORITY_LABEL: Record<Priority, string> = {
   medium: "中",
   normal: "普通",
 };
-
-function optionsFor(stage: number, selections: string[]) {
-  const category = selections[0];
-
-  if (stage === 0) {
-    return ["疼痛不适", "呼吸不适", "需要饮水", "调整体位"];
-  }
-
-  if (stage === 1) {
-    return category === "疼痛不适"
-      ? ["腹部", "胸部", "头部", "四肢"]
-      : ["立即处理", "尽快处理", "稍后处理", "取消需求"];
-  }
-
-  if (category === "呼吸不适") {
-    return ["胸闷", "气短", "咳嗽", "其他不适"];
-  }
-  if (category === "需要饮水") {
-    return ["少量饮水", "润唇", "漱口", "其他需求"];
-  }
-  if (category === "调整体位") {
-    return ["抬高床头", "左侧卧", "右侧卧", "恢复平卧"];
-  }
-  return ["重度持续疼痛", "中度间歇疼痛", "轻度持续疼痛", "疼痛减轻"];
-}
 
 function stageTitle(stage: number, selections: string[]) {
   if (stage === 0) return "请选择需求类型";
@@ -152,16 +48,18 @@ function buildNeed(selections: string[]) {
   return selections[2] || selections[0] || "需要协助";
 }
 
-function buildSteps(selections: string[], confidences: number[]): ConfidenceStep[] {
-  const painFlow = selections[0] === "疼痛不适";
-  const labels = painFlow
-    ? ["需求类型", "疼痛部位", "程度与性质"]
-    : ["需求类型", "处理时效", "具体需求"];
+function buildSteps(
+  selections: string[],
+  confidences: number[],
+  confirmations: boolean[] = [],
+): ConfidenceStep[] {
+  const labels = stepLabelsFor(selections);
 
   return selections.map((value, index) => ({
     label: labels[index],
     value,
     confidence: confidences[index],
+    confirmed: confirmations[index] ?? confidences[index] >= 0.85,
   }));
 }
 
@@ -173,27 +71,44 @@ function formatClock(date: Date) {
   }).format(date);
 }
 
-function nowTime() {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(new Date());
+async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      "content-type": "application/json",
+      ...init?.headers,
+    },
+  });
+  const payload = await response.json() as T & {
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(payload.error?.message || `请求失败（${response.status}）`);
+  }
+  return payload;
 }
+
+type EvaluateResponse = {
+  decision: ConfidenceDecision;
+  events: AuditEvent[];
+};
+
+type TaskMutationResponse = DemoState & { task: CareTask };
 
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("patient");
   const [tasks, setTasks] = useState<CareTask[]>(DEFAULT_TASKS);
   const [events, setEvents] = useState<AuditEvent[]>(DEFAULT_EVENTS);
-  const [hydrated, setHydrated] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState("task-a01");
   const [selections, setSelections] = useState<string[]>([]);
   const [confidences, setConfidences] = useState<number[]>([]);
+  const [confirmations, setConfirmations] = useState<boolean[]>([]);
   const [simConfidence, setSimConfidence] = useState(CONFIDENCE_BY_STEP[0]);
   const [pendingCandidate, setPendingCandidate] = useState<string | null>(null);
   const [notice, setNotice] = useState("等待脑控输入");
   const [submitted, setSubmitted] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
   const [clock, setClock] = useState("--:--");
 
   const stage = selections.length;
@@ -202,18 +117,21 @@ export default function Home() {
   const pendingCount = tasks.filter((task) => task.status === "pending").length;
 
   useEffect(() => {
-    const storedTasks = window.localStorage.getItem("brain-care-tasks");
-    const storedEvents = window.localStorage.getItem("brain-care-events");
-    if (storedTasks) setTasks(JSON.parse(storedTasks) as CareTask[]);
-    if (storedEvents) setEvents(JSON.parse(storedEvents) as AuditEvent[]);
-    setHydrated(true);
+    let cancelled = false;
+    apiRequest<DemoState>("/api/demo")
+      .then((state) => {
+        if (cancelled) return;
+        setTasks(state.tasks);
+        setEvents(state.events);
+        if (state.tasks.length > 0) setSelectedTaskId(state.tasks[0].id);
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setNotice(`后端连接失败：${error.message}`);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    window.localStorage.setItem("brain-care-tasks", JSON.stringify(tasks));
-    window.localStorage.setItem("brain-care-events", JSON.stringify(events));
-  }, [events, hydrated, tasks]);
 
   useEffect(() => {
     const updateClock = () => setClock(formatClock(new Date()));
@@ -222,102 +140,152 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, []);
 
-  function recordEvent(title: string, detail: string) {
-    setEvents((current) => [
-      { id: `event-${Date.now()}`, time: nowTime(), title, detail },
-      ...current,
-    ].slice(0, 12));
-  }
-
-  function acceptChoice(value: string, confidence: number) {
+  function acceptChoice(
+    value: string,
+    confidence: number,
+    confirmed: boolean,
+    nextEvents: AuditEvent[],
+  ) {
     const nextStage = stage + 1;
     setSelections((current) => [...current, value]);
     setConfidences((current) => [...current, confidence]);
+    setConfirmations((current) => [...current, confirmed]);
+    setEvents(nextEvents);
     setPendingCandidate(null);
     setNotice(`已确认：${value}`);
-    recordEvent("脑控选择已确认", `${value} · 置信度 ${confidence.toFixed(2)}`);
     if (nextStage < 3) setSimConfidence(CONFIDENCE_BY_STEP[nextStage]);
   }
 
-  function selectOption(value: string) {
-    if (stage >= 3 || submitted) return;
+  async function selectOption(value: string, confirmed = false) {
+    if (stage >= 3 || submitted || isBusy) return;
     const confidence = Number(simConfidence.toFixed(2));
+    const step = buildSteps(
+      [...selections, value],
+      [...confidences, confidence],
+      [...confirmations, confirmed],
+    )[stage];
 
-    if (confidence < 0.7) {
-      setNotice("置信度不足，本次输入未执行");
-      recordEvent("脑控输入已拒绝", `${value} · 置信度 ${confidence.toFixed(2)}`);
-      return;
+    setIsBusy(true);
+    try {
+      const result = await apiRequest<EvaluateResponse>("/api/brain-control/evaluate", {
+        method: "POST",
+        body: JSON.stringify({
+          bed: "A01",
+          stage,
+          label: step.label,
+          value,
+          confidence,
+          confirmed,
+          selections,
+        }),
+      });
+      setEvents(result.events);
+
+      if (result.decision === "rejected") {
+        setNotice("置信度不足，本次输入未执行");
+        return;
+      }
+      if (result.decision === "confirmation_required") {
+        setPendingCandidate(value);
+        setNotice("需要再次确认本次选择");
+        return;
+      }
+      acceptChoice(value, confidence, confirmed, result.events);
+    } catch (error) {
+      setNotice(`后端处理失败：${(error as Error).message}`);
+    } finally {
+      setIsBusy(false);
     }
-    if (confidence < 0.85) {
-      setPendingCandidate(value);
-      setNotice("需要再次确认本次选择");
-      return;
-    }
-    acceptChoice(value, confidence);
   }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "BUTTON") return;
-      if (activeView !== "patient" || stage >= 3 || submitted || pendingCandidate) return;
+      if (activeView !== "patient" || stage >= 3 || submitted || pendingCandidate || isBusy) return;
       const index = Number(event.key) - 1;
-      if (index >= 0 && index < options.length) selectOption(options[index]);
+      if (index >= 0 && index < options.length) void selectOption(options[index]);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  function confirmRequest() {
-    const steps = buildSteps(selections, confidences);
-    const need = buildNeed(selections);
-    const priority: Priority = need.includes("重度") || selections[1] === "立即处理" ? "high" : "medium";
-    const task: CareTask = {
-      id: "task-a01",
-      bed: "A01",
-      need,
-      source: "脑控确认",
-      priority,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-      steps,
-    };
-
-    setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
-    setSelectedTaskId(task.id);
-    setSubmitted(true);
-    setNotice("需求已发送至护士站");
-    recordEvent("护理任务已创建", `A01 · ${need}`);
+  async function confirmRequest() {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      const result = await apiRequest<TaskMutationResponse>("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          bed: "A01",
+          steps: buildSteps(selections, confidences, confirmations),
+        }),
+      });
+      setTasks(result.tasks);
+      setEvents(result.events);
+      setSelectedTaskId(result.task.id);
+      setSubmitted(true);
+      setNotice("需求已发送至护士站");
+    } catch (error) {
+      setNotice(`任务创建失败：${(error as Error).message}`);
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   function resetPatientFlow() {
     setSelections([]);
     setConfidences([]);
+    setConfirmations([]);
     setSimConfidence(CONFIDENCE_BY_STEP[0]);
     setPendingCandidate(null);
     setNotice("等待脑控输入");
     setSubmitted(false);
   }
 
+  async function mutateTask(task: CareTask, action: "accept" | "complete" | "transfer") {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      const result = await apiRequest<TaskMutationResponse>(`/api/tasks/${encodeURIComponent(task.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action }),
+      });
+      setTasks(result.tasks);
+      setEvents(result.events);
+      setSelectedTaskId(result.task.id);
+    } catch (error) {
+      setNotice(`任务操作失败：${(error as Error).message}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   function updateTaskStatus(task: CareTask) {
-    const nextStatus: TaskStatus = task.status === "pending" ? "accepted" : "done";
-    setTasks((current) => current.map((item) => (
-      item.id === task.id ? { ...item, status: nextStatus } : item
-    )));
-    recordEvent(
-      nextStatus === "accepted" ? "护士已接单" : "护理任务已完成",
-      `${task.bed} · ${task.need}`,
-    );
+    if (task.status === "done") return;
+    void mutateTask(task, task.status === "pending" ? "accept" : "complete");
   }
 
-  function resetDemoData() {
-    setTasks(DEFAULT_TASKS);
-    setEvents(DEFAULT_EVENTS);
-    setSelectedTaskId("task-a01");
-    resetPatientFlow();
+  async function resetDemoData() {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      const state = await apiRequest<DemoState>("/api/demo/reset", {
+        method: "POST",
+        body: "{}",
+      });
+      setTasks(state.tasks);
+      setEvents(state.events);
+      setSelectedTaskId(state.tasks[0]?.id ?? "");
+      resetPatientFlow();
+    } catch (error) {
+      setNotice(`重置失败：${(error as Error).message}`);
+    } finally {
+      setIsBusy(false);
+    }
   }
 
-  const resultSteps = buildSteps(selections, confidences);
+  const resultSteps = buildSteps(selections, confidences, confirmations);
   const overallConfidence = resultSteps.length
     ? Math.min(...resultSteps.map((item) => item.confidence))
     : 0;
@@ -388,7 +356,8 @@ export default function Home() {
                       type="button"
                       className="ssvep-option"
                       key={option}
-                      onClick={() => selectOption(option)}
+                      disabled={isBusy}
+                      onClick={() => void selectOption(option)}
                     >
                       <span className="target-label">{FREQUENCY_LABELS[index]}</span>
                       <strong>{option}</strong>
@@ -404,10 +373,10 @@ export default function Home() {
                       <span>当前置信度 {simConfidence.toFixed(2)}</span>
                     </div>
                     <div className="inline-actions">
-                      <button type="button" className="button secondary" onClick={() => setPendingCandidate(null)}>
+                      <button type="button" className="button secondary" disabled={isBusy} onClick={() => setPendingCandidate(null)}>
                         取消
                       </button>
-                      <button type="button" className="button primary" onClick={() => acceptChoice(pendingCandidate, simConfidence)}>
+                      <button type="button" className="button primary" disabled={isBusy} onClick={() => void selectOption(pendingCandidate, true)}>
                         确认本次选择
                       </button>
                     </div>
@@ -444,7 +413,9 @@ export default function Home() {
                 </div>
                 <div className="review-actions">
                   <button type="button" className="button secondary" onClick={resetPatientFlow}>重新选择</button>
-                  <button type="button" className="button primary" onClick={confirmRequest}>确认并发送需求</button>
+                  <button type="button" className="button primary" disabled={isBusy} onClick={() => void confirmRequest()}>
+                    {isBusy ? "正在发送…" : "确认并发送需求"}
+                  </button>
                 </div>
               </div>
             )}
@@ -549,7 +520,7 @@ export default function Home() {
               ))}
             </div>
 
-            <button type="button" className="reset-button" onClick={resetDemoData}>恢复演示数据</button>
+            <button type="button" className="reset-button" disabled={isBusy} onClick={() => void resetDemoData()}>恢复演示数据</button>
           </section>
 
           {selectedTask && (
@@ -598,14 +569,15 @@ export default function Home() {
                   <button
                     type="button"
                     className="button secondary"
-                    onClick={() => recordEvent("已记录转交申请", `${selectedTask.bed} · ${selectedTask.need}`)}
+                    disabled={isBusy}
+                    onClick={() => void mutateTask(selectedTask, "transfer")}
                   >
                     转交任务
                   </button>
                   <button
                     type="button"
                     className="button primary"
-                    disabled={selectedTask.status === "done"}
+                    disabled={selectedTask.status === "done" || isBusy}
                     onClick={() => updateTaskStatus(selectedTask)}
                   >
                     {selectedTask.status === "pending" && `接单并前往 ${selectedTask.bed}`}
