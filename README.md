@@ -1,34 +1,34 @@
 # Brain Care Demo
 
-脑护通 Demo 项目：用于验证“脑控选择 + AI 分层澄清 + 安全网关 + 护士端任务看板”的最小闭环。
+“脑护通”比赛 Demo，用于验证脑控选择、分层澄清、安全判断与护士任务闭环。
 
-## Demo Scope
+## 当前版本
 
-- 患者端显示有限候选项，第一版使用键盘模拟 SSVEP 识别结果。
-- 后端维护意图状态机、确认/取消逻辑、事件日志和安全规则。
-- LLM API 只用于受控候选项生成和护士端摘要，不直接做医疗判断。
-- 护士端展示患者需求、识别链路置信度、优先级和任务状态。
-- 后续再接入 OpenBCI/SSVEP 分类结果替换键盘模拟输入。
+第一版采用受控状态机，不直接接入真实脑电或自主 Agent：
 
-## Project Layout
+1. 患者端用点击或数字键模拟 SSVEP 分类结果。
+2. 每层选择记录置信度，低于阈值时拒绝或再次确认。
+3. 患者确认后生成护理任务。
+4. 护士端显示床位、需求、来源、置信度、优先级和状态。
+5. 护士可接单、完成任务并保留事件记录。
+
+## 项目结构
 
 ```text
-frontend/   患者端和护士端页面
-backend/    API、状态机、任务和日志
-bci/        OpenBCI/SSVEP 接入脚本
-prompts/    LLM 提示词、JSON schema 和白名单约束
+frontend/   可运行的患者端与护士端 Demo
+backend/    后续 API、任务与日志服务
+bci/        后续 OpenBCI/SSVEP 接入
+prompts/    后续受控 LLM 提示词与 JSON Schema
 rules/      安全网关规则
-data/       Demo 词库、样例数据
-logs/       本地运行日志，不提交
-docs/       设计说明和演示脚本
+data/       Demo 数据
+logs/       本地运行日志
+docs/       设计说明与演示脚本
 ```
 
-## First Milestone
+## 运行前端
 
-先实现无脑电版 Demo：
-
-1. 患者端 4-6 个闪烁选项。
-2. 键盘模拟脑控识别结果。
-3. 多轮确认和分层追问。
-4. 生成护士端任务。
-5. 保存完整事件日志。
+```bash
+cd frontend
+npm install
+npm run dev
+```
