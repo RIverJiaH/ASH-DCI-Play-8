@@ -52,7 +52,7 @@ test("server-renders the Brain Care demo", async () => {
   assert.match(html, /脑护通/);
   assert.match(html, /受控照护交互 Demo/);
   assert.match(html, /患者端/);
-  assert.match(html, /护士端/);
+  assert.match(html, /护理端/);
   assert.match(html, /模拟脑控信号/);
   assert.doesNotMatch(html, /Your site is taking shape|Starter Project|codex-preview/);
 });

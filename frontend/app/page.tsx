@@ -225,7 +225,7 @@ export default function Home() {
       setEvents(result.events);
       setSelectedTaskId(result.task.id);
       setSubmitted(true);
-      setNotice("需求已发送至护士站");
+      setNotice("需求已发送至护理端");
     } catch (error) {
       setNotice(`任务创建失败：${(error as Error).message}`);
     } finally {
@@ -316,7 +316,7 @@ export default function Home() {
             aria-pressed={activeView === "nurse"}
             onClick={() => setActiveView("nurse")}
           >
-            护士端
+            护理端
             {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
           </button>
         </nav>
@@ -334,7 +334,7 @@ export default function Home() {
               <div>
                 <span className="eyebrow">床位 A01 · 脑控表达</span>
                 <h1 id="patient-title">{submitted ? "需求已经送达" : stageTitle(stage, selections)}</h1>
-                <p>{submitted ? "护士站已收到完整的分层确认记录" : "注视目标或使用数字键完成当前层选择"}</p>
+                <p>{submitted ? "护理端已收到完整的分层确认记录" : "注视目标或使用数字键完成当前层选择"}</p>
               </div>
               <div className="step-progress" aria-label={`当前第 ${Math.min(stage + 1, 3)} 步，共 3 步`}>
                 {[0, 1, 2].map((index) => (
@@ -427,7 +427,7 @@ export default function Home() {
                 <p>来源：脑控确认 · 整体置信度 {overallConfidence.toFixed(2)}</p>
                 <div className="review-actions">
                   <button type="button" className="button secondary" onClick={resetPatientFlow}>发起新需求</button>
-                  <button type="button" className="button primary" onClick={() => setActiveView("nurse")}>查看护士端</button>
+                  <button type="button" className="button primary" onClick={() => setActiveView("nurse")}>查看护理端</button>
                 </div>
               </div>
             )}

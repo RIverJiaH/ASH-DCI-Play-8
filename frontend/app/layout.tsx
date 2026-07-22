@@ -10,17 +10,17 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: "脑护通 · 受控照护交互 Demo",
-    description: "脑控分层表达、置信度安全判断与护士任务闭环演示。",
+    description: "脑控分层表达、置信度安全判断与护理任务闭环演示。",
     metadataBase: new URL(origin),
     openGraph: {
       title: "脑护通",
-      description: "脑控分层表达与护士任务闭环演示",
+      description: "脑控分层表达与护理任务闭环演示",
       images: [`${origin}/og.png`],
     },
     twitter: {
       card: "summary_large_image",
       title: "脑护通",
-      description: "脑控分层表达与护士任务闭环演示",
+      description: "脑控分层表达与护理任务闭环演示",
       images: [`${origin}/og.png`],
     },
   };

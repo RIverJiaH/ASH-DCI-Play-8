@@ -105,7 +105,7 @@ export const DEFAULT_TASKS: CareTask[] = [
 
 export const DEFAULT_EVENTS: AuditEvent[] = [
   { id: "event-1", time: "14:29:42", title: "任务已创建", detail: "A01 · 腹部重度持续疼痛" },
-  { id: "event-2", time: "14:27:03", title: "护士已接单", detail: "B06 · 调整体位" },
+  { id: "event-2", time: "14:27:03", title: "护理人员已接单", detail: "B06 · 调整体位" },
   { id: "event-3", time: "14:25:18", title: "任务已完成", detail: "C12 · 少量饮水" },
 ];
 

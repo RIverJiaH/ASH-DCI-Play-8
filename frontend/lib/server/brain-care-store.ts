@@ -105,7 +105,7 @@ class BrainCareStore {
 
     task.status = nextStatus;
     this.addEvent(
-      nextStatus === "accepted" ? "护士已接单" : "护理任务已完成",
+      nextStatus === "accepted" ? "护理人员已接单" : "护理任务已完成",
       `${task.bed} · ${task.need}`,
     );
     return { ...task, steps: task.steps.map((step) => ({ ...step })) };
