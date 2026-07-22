@@ -1,4 +1,5 @@
 import type { CareOption } from "../brain-care";
+import type { DemoPatientProfile } from "../demo-patients";
 
 type ApprovedOptionGroup = {
   question: string;
@@ -134,12 +135,57 @@ const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
   },
 };
 
-export function approvedOptionsFor(parentIntentCode: string): ApprovedOptionGroup | undefined {
+export function approvedOptionsFor(
+  parentIntentCode: string,
+  patient?: DemoPatientProfile,
+): ApprovedOptionGroup | undefined {
   const group = APPROVED_GROUPS[parentIntentCode];
   if (!group) return undefined;
+  const options = group.options.map((item) => ({
+    ...item,
+    evidence: item.evidence ? [...item.evidence] : undefined,
+  }));
+
+  if (parentIntentCode === "category.basic_care" && patient?.swallowingRisk === "high") {
+    const hydrationIndex = options.findIndex((item) => item.id === "care-hydration");
+    if (hydrationIndex >= 0) {
+      options[hydrationIndex] = {
+        ...options[hydrationIndex],
+        id: "care-hydration-assessment",
+        intentCode: "care.hydration.assessment",
+        label: "饮水口腔需评估",
+        taskText: "患者提出饮水或口腔护理需求，存在吞咽风险，需护理人员评估",
+        riskLevel: "attention",
+        riskNotice: "记录存在吞咽风险，不直接生成饮水动作。",
+        evidence: [patient.swallowingRiskLabel, patient.oralIntakeLabel],
+        safetyRule: "HYDRATION_REQUIRES_NURSE_ASSESSMENT",
+      };
+    }
+  }
+
+  if (
+    parentIntentCode === "category.basic_care"
+    && patient?.positionRestriction === "postoperative_assessment"
+  ) {
+    const positionIndex = options.findIndex((item) => item.id === "care-position");
+    if (positionIndex >= 0) {
+      options[positionIndex] = {
+        ...options[positionIndex],
+        id: "care-position-assessment",
+        intentCode: "care.position.assessment",
+        label: "体位调整需评估",
+        taskText: "患者提出体位调整需求，存在术后体位限制，需护理人员评估",
+        riskLevel: "attention",
+        riskNotice: "记录存在术后体位限制，不直接生成具体卧位动作。",
+        evidence: [patient.positionRestrictionLabel, patient.communication],
+        safetyRule: "POSITION_REQUIRES_NURSE_ASSESSMENT",
+      };
+    }
+  }
+
   return {
     question: group.question,
     stepLabel: group.stepLabel,
-    options: group.options.map((item) => ({ ...item })),
+    options,
   };
 }

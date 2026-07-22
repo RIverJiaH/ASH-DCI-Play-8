@@ -12,6 +12,9 @@ export type CareOption = {
   riskLevel: RiskLevel;
   actionMode: ActionMode;
   terminal: boolean;
+  riskNotice?: string;
+  evidence?: string[];
+  safetyRule?: string;
 };
 
 export type OptionSelectionRef = {
@@ -22,6 +25,7 @@ export type OptionSelectionRef = {
 export type AiOptionSet = {
   id: string;
   sessionId: string;
+  bed: string;
   stage: 1 | 2;
   question: string;
   stepLabel: string;
@@ -46,6 +50,12 @@ export type ConfidenceStep = {
   riskLevel?: RiskLevel;
   actionMode?: ActionMode;
   terminal?: boolean;
+  riskNotice?: string;
+  evidence?: string[];
+  safetyRule?: string;
+  aiSource?: OptionSetSource;
+  aiModel?: string;
+  aiGuidance?: string;
 };
 
 export type CareTask = {
@@ -161,46 +171,69 @@ export const DEFAULT_TASKS: CareTask[] = [
     ],
   },
   {
-    id: "task-b06",
-    bed: "B06",
-    need: "需要协助调整卧位",
-    source: "脑控确认",
+    id: "task-b02",
+    bed: "B02",
+    need: "患者提出饮水或口腔护理需求，存在吞咽风险，需护理人员评估",
+    source: "AI引导 · 脑控确认",
     priority: "medium",
     status: "accepted",
     createdAt: "2026-07-21T14:26:19+08:00",
     steps: [
-      { label: "需求类型", value: "调整体位", confidence: 0.89 },
-      { label: "处理时效", value: "尽快处理", confidence: 0.86 },
-      { label: "具体需求", value: "抬高床头", confidence: 0.9 },
+      { label: "需求分类", value: "基本照护", confidence: 0.89 },
+      {
+        label: "照护类型",
+        value: "饮水口腔需评估",
+        confidence: 0.86,
+        riskLevel: "attention",
+        riskNotice: "记录存在吞咽风险，不直接生成饮水动作。",
+        evidence: ["吞咽风险高", "饮水前需护理评估"],
+        safetyRule: "HYDRATION_REQUIRES_NURSE_ASSESSMENT",
+        aiSource: "deepseek",
+        aiModel: "deepseek-v4-flash",
+        aiGuidance: "已根据吞咽风险，将饮水口腔需求调整为护理评估。",
+      },
     ],
   },
   {
-    id: "task-c12",
-    bed: "C12",
-    need: "需要少量饮水",
-    source: "脑控确认",
-    priority: "normal",
+    id: "task-c03",
+    bed: "C03",
+    need: "患者提出体位调整需求，存在术后体位限制，需护理人员评估",
+    source: "AI引导 · 脑控确认",
+    priority: "medium",
     status: "done",
     createdAt: "2026-07-21T14:18:08+08:00",
     steps: [
-      { label: "需求类型", value: "需要饮水", confidence: 0.94 },
-      { label: "处理时效", value: "稍后处理", confidence: 0.9 },
-      { label: "具体需求", value: "少量饮水", confidence: 0.92 },
+      { label: "需求分类", value: "基本照护", confidence: 0.94 },
+      {
+        label: "照护类型",
+        value: "体位调整需评估",
+        confidence: 0.9,
+        riskLevel: "attention",
+        riskNotice: "记录存在术后体位限制，不直接生成具体卧位动作。",
+        evidence: ["术后体位调整前需评估", "无法稳定言语表达"],
+        safetyRule: "POSITION_REQUIRES_NURSE_ASSESSMENT",
+        aiSource: "deepseek",
+        aiModel: "deepseek-v4-flash",
+        aiGuidance: "已根据术后体位限制，将体位调整需求调整为护理评估。",
+      },
     ],
   },
 ];
 
 export const DEFAULT_EVENTS: AuditEvent[] = [
   { id: "event-1", time: "14:29:42", title: "任务已创建", detail: "A01 · 腹部重度持续疼痛" },
-  { id: "event-2", time: "14:27:03", title: "护理人员已接单", detail: "B06 · 调整体位" },
-  { id: "event-3", time: "14:25:18", title: "任务已完成", detail: "C12 · 少量饮水" },
+  { id: "event-2", time: "14:27:03", title: "护理人员已接单", detail: "B02 · 饮水口腔需评估" },
+  { id: "event-3", time: "14:25:18", title: "任务已完成", detail: "C03 · 体位调整需评估" },
 ];
 
 export function cloneDemoState(): DemoState {
   return {
     tasks: DEFAULT_TASKS.map((task) => ({
       ...task,
-      steps: task.steps.map((step) => ({ ...step })),
+      steps: task.steps.map((step) => ({
+        ...step,
+        evidence: step.evidence ? [...step.evidence] : undefined,
+      })),
     })),
     events: DEFAULT_EVENTS.map((event) => ({ ...event })),
   };

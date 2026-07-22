@@ -16,6 +16,7 @@ import {
   type Priority,
   type TaskStatus,
 } from "../lib/brain-care";
+import { DEMO_PATIENTS } from "../lib/demo-patients";
 
 type View = "patient" | "nurse";
 
@@ -47,12 +48,18 @@ type PatientSelection = {
   stepLabel: string;
   confidence: number;
   confirmed: boolean;
+  aiSource?: AiOptionSet["source"];
+  aiModel?: string;
+  aiGuidance?: string;
 };
 
 type ResolvedSelection = {
   option: CareOption;
   optionSetId?: string;
   stepLabel: string;
+  aiSource?: AiOptionSet["source"];
+  aiModel?: string;
+  aiGuidance?: string;
 };
 
 function selectionRefs(selections: PatientSelection[]): OptionSelectionRef[] {
@@ -75,6 +82,12 @@ function buildSteps(selections: PatientSelection[]): ConfidenceStep[] {
     riskLevel: selection.option.riskLevel,
     actionMode: selection.option.actionMode,
     terminal: selection.option.terminal,
+    riskNotice: selection.option.riskNotice,
+    evidence: selection.option.evidence ? [...selection.option.evidence] : undefined,
+    safetyRule: selection.option.safetyRule,
+    aiSource: selection.aiSource,
+    aiModel: selection.aiModel,
+    aiGuidance: selection.aiGuidance,
   }));
 }
 
@@ -132,6 +145,7 @@ export default function Home() {
   const [events, setEvents] = useState<AuditEvent[]>(DEFAULT_EVENTS);
   const [selectedTaskId, setSelectedTaskId] = useState("task-a01");
   const [sessionId, setSessionId] = useState(createSessionId);
+  const [patientBed, setPatientBed] = useState(DEMO_PATIENTS[0].bed);
   const [selections, setSelections] = useState<PatientSelection[]>([]);
   const [currentOptionSet, setCurrentOptionSet] = useState<AiOptionSet | null>(null);
   const [optionState, setOptionState] = useState<"idle" | "generating" | "ready" | "failed">("idle");
@@ -143,11 +157,15 @@ export default function Home() {
   const [clock, setClock] = useState("--:--");
 
   const stage = selections.length;
+  const selectedPatient = DEMO_PATIENTS.find((patient) => patient.bed === patientBed) ?? DEMO_PATIENTS[0];
   const isEmergency = selections[0]?.option.intentCode === "category.emergency";
   const isComplete = selections.at(-1)?.option.terminal === true || stage === 3;
   const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? [];
   const totalSteps = isComplete ? stage : 3;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
+  const selectedClinicalStep = selectedTask
+    ? [...selectedTask.steps].reverse().find((step) => step.riskNotice || step.safetyRule)
+    : undefined;
   const pendingCount = tasks.filter((task) => task.status === "pending").length;
   const currentTitle = isComplete
     ? "请确认本次需求"
@@ -190,7 +208,7 @@ export default function Home() {
       signal: controller.signal,
       body: JSON.stringify({
         sessionId,
-        bed: "A01",
+        bed: selectedPatient.bed,
         stage,
         selections: selectionRefs(selections),
       }),
@@ -213,7 +231,7 @@ export default function Home() {
       });
 
     return () => controller.abort();
-  }, [isComplete, sessionId, stage, submitted, selections]);
+  }, [isComplete, patientBed, sessionId, stage, submitted, selections, selectedPatient.bed]);
 
   useEffect(() => {
     const updateClock = () => setClock(formatClock(new Date()));
@@ -250,7 +268,7 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify({
           sessionId,
-          bed: "A01",
+          bed: selectedPatient.bed,
           stage,
           optionId: option.id,
           optionSetId: stage === 0 ? undefined : currentOptionSet?.id,
@@ -307,7 +325,7 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify({
           sessionId,
-          bed: "A01",
+          bed: selectedPatient.bed,
           steps: buildSteps(selections),
         }),
       });
@@ -332,6 +350,13 @@ export default function Home() {
     setPendingCandidate(null);
     setNotice("等待脑控输入");
     setSubmitted(false);
+  }
+
+  function changeDemoPatient(nextBed: string) {
+    setPatientBed(nextBed);
+    resetPatientFlow();
+    const nextPatient = DEMO_PATIENTS.find((patient) => patient.bed === nextBed);
+    setNotice(nextPatient ? `已切换：${nextPatient.scenarioLabel}` : "等待脑控输入");
   }
 
   async function mutateTask(task: CareTask, action: "accept" | "complete" | "transfer") {
@@ -377,6 +402,7 @@ export default function Home() {
   }
 
   const resultSteps = buildSteps(selections);
+  const resultClinicalStep = [...resultSteps].reverse().find((step) => step.riskNotice || step.safetyRule);
   const overallConfidence = resultSteps.length
     ? Math.min(...resultSteps.map((item) => item.confidence))
     : 0;
@@ -393,7 +419,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">脑</span>
           <div>
             <strong className="brand-name">脑护通</strong>
-            <span className="brand-role">受控照护交互 Demo</span>
+            <span className="brand-role">受控照护交互 Demo V2</span>
           </div>
         </div>
 
@@ -428,7 +454,7 @@ export default function Home() {
           <section className="patient-workspace" aria-labelledby="patient-title">
             <header className="surface-header patient-header">
               <div>
-                <span className="eyebrow">床位 A01 · 脑控表达</span>
+                <span className="eyebrow">床位 {selectedPatient.bed} · 脑控表达</span>
                 <h1 id="patient-title">{submitted ? "需求已经送达" : currentTitle}</h1>
                 <p>{submitted ? "护理端已收到完整的分层确认记录" : "注视目标或使用数字键完成当前层选择"}</p>
               </div>
@@ -481,7 +507,10 @@ export default function Home() {
                       >
                         <span className="option-target-row">
                           <span className="target-label">{FREQUENCY_LABELS[index]}</span>
-                          {currentOptionSet?.source === "deepseek" && <span className="ai-option-marker">AI</span>}
+                          <span className="option-markers">
+                            {option.safetyRule && <span className="safety-option-marker">需评估</span>}
+                            {currentOptionSet?.source === "deepseek" && <span className="ai-option-marker">AI</span>}
+                          </span>
                         </span>
                         <strong>{option.label}</strong>
                         <span className="key-label">{index + 1}</span>
@@ -537,6 +566,12 @@ export default function Home() {
                   </div>
                   <span className={`priority-badge ${previewPriority}`}>优先级 {PRIORITY_LABEL[previewPriority]}</span>
                 </div>
+                {resultClinicalStep?.riskNotice && (
+                  <div className="clinical-risk-alert" role="status">
+                    <strong>安全规则已触发</strong>
+                    <span>{resultClinicalStep.riskNotice}</span>
+                  </div>
+                )}
                 <ConfidenceChain steps={resultSteps} />
                 <div className="confidence-summary">
                   <p>整体置信度取已确认层级中的最低值，用于安全决策。</p>
@@ -572,6 +607,29 @@ export default function Home() {
               </div>
               <span className="live-status"><i />稳定</span>
             </header>
+
+            <section className="demo-context-panel" aria-labelledby="demo-context-title">
+              <label htmlFor="demo-patient">
+                <span id="demo-context-title">模拟病历场景</span>
+                <select
+                  id="demo-patient"
+                  value={selectedPatient.bed}
+                  disabled={isBusy}
+                  onChange={(event) => changeDemoPatient(event.target.value)}
+                >
+                  {DEMO_PATIENTS.map((patient) => (
+                    <option key={patient.bed} value={patient.bed}>
+                      {patient.bed} · {patient.scenarioLabel}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p>{selectedPatient.summary}</p>
+              <div className="demo-context-facts">
+                <span>吞咽风险<strong>{selectedPatient.swallowingRiskLabel}</strong></span>
+                <span>体位限制<strong>{selectedPatient.positionRestrictionLabel}</strong></span>
+              </div>
+            </section>
 
             <label className="confidence-control" htmlFor="confidence">
               <span>
@@ -686,6 +744,36 @@ export default function Home() {
                 </div>
               </section>
 
+              {selectedClinicalStep && (
+                <section className="clinical-review-section" aria-labelledby="clinical-review-title">
+                  <div className="section-heading">
+                    <h3 id="clinical-review-title">风险提示与依据</h3>
+                    <span>仅用于护理人员确认</span>
+                  </div>
+                  <div className="clinical-review-grid">
+                    <div className="clinical-review-notice">
+                      <span>风险提示</span>
+                      <strong>{selectedClinicalStep.riskNotice}</strong>
+                    </div>
+                    <div>
+                      <span>模拟病历依据</span>
+                      <ul>
+                        {selectedClinicalStep.evidence?.map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </div>
+                    <div>
+                      <span>安全规则</span>
+                      <strong>{selectedClinicalStep.safetyRule}</strong>
+                    </div>
+                    <div>
+                      <span>AI引导依据</span>
+                      <strong>{selectedClinicalStep.aiGuidance || "固定安全规则生成"}</strong>
+                      {selectedClinicalStep.aiModel && <small>{selectedClinicalStep.aiModel}</small>}
+                    </div>
+                  </div>
+                </section>
+              )}
+
               <section className="action-section" aria-labelledby="action-title">
                 <div className="section-heading">
                   <h3 id="action-title">任务处置</h3>
@@ -694,7 +782,7 @@ export default function Home() {
                 <div className="action-context">
                   <div><span>患者</span><strong>床位 {selectedTask.bed}</strong></div>
                   <div><span>当前状态</span><strong>{STATUS_LABEL[selectedTask.status]}</strong></div>
-                  <div><span>安全规则</span><strong>人工护理确认</strong></div>
+                  <div><span>安全规则</span><strong>{selectedClinicalStep ? "已触发 · 人工确认" : "人工护理确认"}</strong></div>
                 </div>
                 <div className="button-row">
                   <button

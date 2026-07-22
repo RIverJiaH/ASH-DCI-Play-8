@@ -88,6 +88,8 @@ test("server-renders the Brain Care demo", async () => {
   assert.match(html, /患者端/);
   assert.match(html, /护理端/);
   assert.match(html, /模拟脑控信号/);
+  assert.match(html, /模拟病历场景/);
+  assert.match(html, /吞咽风险/);
   assert.doesNotMatch(html, /Your site is taking shape|Starter Project|codex-preview/);
 });
 
@@ -253,6 +255,65 @@ test("creates hydration request after two confirmed selections", async () => {
   assert.equal(body.task.steps.length, 2);
 });
 
+test("applies simulated clinical context before AI option generation", async () => {
+  await jsonRequest("/api/demo/reset", "POST", {});
+  const swallowingSession = `session-test-swallowing-${Date.now()}`;
+  const root = { optionId: "root-basic-care" };
+  const swallowingResponse = await jsonRequest("/api/options/generate", "POST", {
+    sessionId: swallowingSession,
+    bed: "B02",
+    stage: 1,
+    selections: [root],
+  });
+  assert.equal(swallowingResponse.status, 201);
+  const swallowingSet = await swallowingResponse.json();
+  assert.equal(swallowingSet.bed, "B02");
+  const hydration = swallowingSet.options.find((option) => option.id === "care-hydration-assessment");
+  assert.ok(hydration);
+  assert.equal(hydration.safetyRule, "HYDRATION_REQUIRES_NURSE_ASSESSMENT");
+  assert.equal(hydration.riskLevel, "attention");
+  assert.ok(hydration.evidence.includes("吞咽风险高"));
+
+  const crossBed = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId: swallowingSession,
+    bed: "A01",
+    stage: 1,
+    optionId: hydration.id,
+    optionSetId: swallowingSet.id,
+    confidence: 0.9,
+    selections: [root],
+  });
+  assert.equal(crossBed.status, 422);
+  assert.equal((await crossBed.json()).error.code, "OPTION_SET_MISMATCH");
+
+  const created = await jsonRequest("/api/tasks", "POST", {
+    sessionId: swallowingSession,
+    bed: "B02",
+    steps: [
+      { ...root, confidence: 0.91 },
+      { optionId: hydration.id, optionSetId: swallowingSet.id, confidence: 0.88 },
+    ],
+  });
+  assert.equal(created.status, 201);
+  const createdTask = (await created.json()).task;
+  assert.equal(createdTask.priority, "medium");
+  assert.equal(createdTask.steps[1].safetyRule, "HYDRATION_REQUIRES_NURSE_ASSESSMENT");
+  assert.ok(createdTask.steps[1].riskNotice);
+
+  const positionSession = `session-test-position-${Date.now()}`;
+  const positionResponse = await jsonRequest("/api/options/generate", "POST", {
+    sessionId: positionSession,
+    bed: "C03",
+    stage: 1,
+    selections: [root],
+  });
+  assert.equal(positionResponse.status, 201);
+  const positionSet = await positionResponse.json();
+  const position = positionSet.options.find((option) => option.id === "care-position-assessment");
+  assert.ok(position);
+  assert.equal(position.safetyRule, "POSITION_REQUIRES_NURSE_ASSESSMENT");
+});
+
 test("freezes controlled AI options and leaves device execution disabled", async () => {
   await jsonRequest("/api/demo/reset", "POST", {});
   const sessionId = `session-test-safety-${Date.now()}`;
@@ -296,6 +357,7 @@ test("keeps DeepSeek generation server-side and constrained", async () => {
   assert.match(provider, /response_format/);
   assert.match(provider, /approvedById/);
   assert.match(provider, /guidance/);
+  assert.match(provider, /clinicalContext/);
   assert.match(service, /using approved fallback/);
   assert.match(page, /DeepSeek 实时分析/);
   assert.match(page, /ai-option-marker/);

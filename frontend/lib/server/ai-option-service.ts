@@ -1,4 +1,5 @@
 import type { AiOptionSet, OptionSelectionRef } from "../brain-care";
+import { demoPatientForBed } from "../demo-patients";
 import { approvedOptionsFor } from "./approved-options";
 import { aiOptionStore } from "./ai-option-store";
 import { DomainError } from "./domain-error";
@@ -22,13 +23,18 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     throw new DomainError("selections 必须包含当前层之前的选择");
   }
 
-  const path = aiOptionStore.resolvePath(input.sessionId, input.selections);
+  const patient = demoPatientForBed(input.bed);
+  if (!patient) {
+    throw new DomainError("当前床位没有可用的演示病历场景", 422, "DEMO_PATIENT_NOT_FOUND");
+  }
+
+  const path = aiOptionStore.resolvePath(input.sessionId, patient.bed, input.selections);
   if (path[0]?.option.intentCode === "category.emergency") {
     throw new DomainError("紧急求助不调用 AI，直接进入确认", 422, "EMERGENCY_BYPASSES_AI");
   }
 
   const parentIntentCode = path.at(-1)?.option.intentCode ?? "";
-  const group = approvedOptionsFor(parentIntentCode);
+  const group = approvedOptionsFor(parentIntentCode, patient);
   if (!group) {
     throw new DomainError("当前路径没有可用的受控选项", 422, "NO_APPROVED_OPTIONS");
   }
@@ -38,12 +44,14 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     try {
       const generated = await generateDeepSeekOptions({
         bed: input.bed.trim().toUpperCase(),
+        patient,
         pathIntentCodes: path.map((item) => item.option.intentCode),
         question: group.question,
         options: group.options,
       });
       return aiOptionStore.create({
         sessionId: input.sessionId,
+        bed: patient.bed,
         stage: input.stage,
         pathIntentCodes: path.map((item) => item.option.intentCode),
         question: generated.question,
@@ -51,7 +59,7 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
         source: "deepseek",
         options: generated.options,
         model: generated.model,
-        promptVersion: "deepseek-options-v2",
+        promptVersion: "deepseek-options-v3",
         guidance: generated.guidance,
       });
     } catch (error) {
@@ -67,6 +75,7 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
 
   return aiOptionStore.create({
     sessionId: input.sessionId,
+    bed: patient.bed,
     stage: input.stage,
     pathIntentCodes: path.map((item) => item.option.intentCode),
     question: group.question,
@@ -85,6 +94,7 @@ function createApprovedFallback(
 ): AiOptionSet {
   return aiOptionStore.create({
     sessionId: input.sessionId,
+    bed: input.bed,
     stage: input.stage,
     pathIntentCodes,
     question: group.question,

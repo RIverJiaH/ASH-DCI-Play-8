@@ -35,7 +35,7 @@ class BrainCareStore {
     return {
       tasks: this.state.tasks.map((task) => ({
         ...task,
-        steps: task.steps.map((step) => ({ ...step })),
+        steps: task.steps.map(cloneStep),
       })),
       events: this.state.events.map((event) => ({ ...event })),
     };
@@ -67,13 +67,17 @@ class BrainCareStore {
 
   createTask(sessionId: string, bed: string, steps: ConfidenceStep[]): CareTask {
     const normalizedBed = validateBed(bed);
-    const normalizedSteps = validateTaskSteps(sessionId, steps);
+    const normalizedSteps = validateTaskSteps(sessionId, normalizedBed, steps);
     const need = needFromSteps(normalizedSteps);
     const task: CareTask = {
       id: `task-${normalizedBed.toLowerCase()}-${Date.now()}`,
       bed: normalizedBed,
       need,
-      source: normalizedSteps.length > 1 ? "AI引导 · 脑控确认" : "脑控确认",
+      source: normalizedSteps.some((step) => step.aiSource === "deepseek")
+        ? "AI引导 · 脑控确认"
+        : normalizedSteps.length > 1
+          ? "受控引导 · 脑控确认"
+          : "脑控确认",
       priority: priorityFromSteps(normalizedSteps),
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -82,7 +86,7 @@ class BrainCareStore {
 
     this.state.tasks = [task, ...this.state.tasks];
     this.addEvent("护理任务已创建", `${task.bed} · ${task.need}`);
-    return { ...task, steps: task.steps.map((step) => ({ ...step })) };
+    return { ...task, steps: task.steps.map(cloneStep) };
   }
 
   updateTask(id: string, action: TaskAction): CareTask {
@@ -91,7 +95,7 @@ class BrainCareStore {
 
     if (action === "transfer") {
       this.addEvent("已记录转交申请", `${task.bed} · ${task.need}`);
-      return { ...task, steps: task.steps.map((step) => ({ ...step })) };
+      return { ...task, steps: task.steps.map(cloneStep) };
     }
 
     const expectedStatus: TaskStatus = action === "accept" ? "pending" : "accepted";
@@ -109,7 +113,7 @@ class BrainCareStore {
       nextStatus === "accepted" ? "护理人员已接单" : "护理任务已完成",
       `${task.bed} · ${task.need}`,
     );
-    return { ...task, steps: task.steps.map((step) => ({ ...step })) };
+    return { ...task, steps: task.steps.map(cloneStep) };
   }
 
   private addEvent(title: string, detail: string): AuditEvent {
@@ -125,7 +129,7 @@ class BrainCareStore {
 }
 
 function validateBrainInput(input: BrainInput): ResolvedSelection {
-  validateBed(input.bed);
+  const normalizedBed = validateBed(input.bed);
   if (!Number.isInteger(input.stage) || input.stage < 0 || input.stage > 2) {
     throw new DomainError("stage 必须是 0、1 或 2");
   }
@@ -133,14 +137,14 @@ function validateBrainInput(input: BrainInput): ResolvedSelection {
   if (!Array.isArray(input.selections) || input.selections.length !== input.stage) {
     throw new DomainError("selections 必须包含当前层之前的选择");
   }
-  const path = aiOptionStore.resolvePath(input.sessionId, [
+  const path = aiOptionStore.resolvePath(input.sessionId, normalizedBed, [
     ...input.selections,
     { optionId: input.optionId, optionSetId: input.optionSetId },
   ]);
   return path[input.stage];
 }
 
-function validateTaskSteps(sessionId: string, steps: ConfidenceStep[]): ConfidenceStep[] {
+function validateTaskSteps(sessionId: string, bed: string, steps: ConfidenceStep[]): ConfidenceStep[] {
   if (!Array.isArray(steps) || steps.length < 1 || steps.length > 3) {
     throw new DomainError("护理任务必须包含 1 到 3 层确认结果");
   }
@@ -151,7 +155,7 @@ function validateTaskSteps(sessionId: string, steps: ConfidenceStep[]): Confiden
     }
     return { optionId: step.optionId, optionSetId: step.optionSetId };
   });
-  const resolved = aiOptionStore.resolvePath(sessionId, refs);
+  const resolved = aiOptionStore.resolvePath(sessionId, bed, refs);
   if (steps.length !== expectedStepCount(stepsFromResolved(resolved))) {
     throw new DomainError("选择路径尚未完成或包含多余层级", 422, "INCOMPLETE_SELECTION_PATH");
   }
@@ -181,6 +185,12 @@ function validateTaskSteps(sessionId: string, steps: ConfidenceStep[]): Confiden
       riskLevel: authoritative.option.riskLevel,
       actionMode: authoritative.option.actionMode,
       terminal: authoritative.option.terminal,
+      riskNotice: authoritative.option.riskNotice,
+      evidence: authoritative.option.evidence ? [...authoritative.option.evidence] : undefined,
+      safetyRule: authoritative.option.safetyRule,
+      aiSource: authoritative.aiSource,
+      aiModel: authoritative.aiModel,
+      aiGuidance: authoritative.aiGuidance,
     };
   });
 }
@@ -199,6 +209,13 @@ function validateBed(value: string): string {
   const bed = typeof value === "string" ? value.trim().toUpperCase() : "";
   if (!/^[A-Z]\d{2}$/.test(bed)) throw new DomainError("bed 格式必须类似 A01");
   return bed;
+}
+
+function cloneStep(step: ConfidenceStep): ConfidenceStep {
+  return {
+    ...step,
+    evidence: step.evidence ? [...step.evidence] : undefined,
+  };
 }
 
 function validateConfidence(value: number) {

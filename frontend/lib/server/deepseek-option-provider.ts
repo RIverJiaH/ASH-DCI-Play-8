@@ -1,7 +1,9 @@
 import type { CareOption } from "../brain-care";
+import type { DemoPatientProfile } from "../demo-patients";
 
 type GenerateDeepSeekOptionsInput = {
   bed: string;
+  patient: DemoPatientProfile;
   pathIntentCodes: string[];
   question: string;
   options: CareOption[];
@@ -48,6 +50,7 @@ export async function generateDeepSeekOptions(
             content: [
               "你是住院患者脑控表达 Demo 的受控选项编辑器。",
               "只能使用用户提供的候选 id，不得新增、删除或修改医疗意图。",
+              "clinicalContext 是本轮唯一允许引用的模拟病历依据；只可引用其中明确提供的字段。",
               "可以调整三个候选项的顺序，并将 label 改写为清晰、无歧义、最多 12 个汉字的短语。",
               "guidance 用一句不超过 50 个汉字的话，说明本轮如何根据已选需求组织引导选项。",
               "不得声称读取了未提供的病历、检查或生命体征，也不得使用发生率、常见性或临床优先级作为排序依据。",
@@ -60,12 +63,22 @@ export async function generateDeepSeekOptions(
             role: "user",
             content: JSON.stringify({
               bed: input.bed,
+              clinicalContext: {
+                scenario: input.patient.scenarioLabel,
+                communication: input.patient.communication,
+                oralIntake: input.patient.oralIntakeLabel,
+                swallowingRisk: input.patient.swallowingRiskLabel,
+                positionRestriction: input.patient.positionRestrictionLabel,
+              },
               selectedPath: input.pathIntentCodes,
               defaultQuestion: input.question,
               candidates: input.options.map((option) => ({
                 id: option.id,
                 label: option.label,
                 intentCode: option.intentCode,
+                riskNotice: option.riskNotice,
+                evidence: option.evidence,
+                safetyRule: option.safetyRule,
               })),
             }),
           },
