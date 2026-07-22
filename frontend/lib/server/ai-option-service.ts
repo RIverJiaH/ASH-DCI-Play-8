@@ -51,7 +51,8 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
         source: "deepseek",
         options: generated.options,
         model: generated.model,
-        promptVersion: "deepseek-options-v1",
+        promptVersion: "deepseek-options-v2",
+        guidance: generated.guidance,
       });
     } catch (error) {
       console.error("DeepSeek option generation failed; using approved fallback", error);

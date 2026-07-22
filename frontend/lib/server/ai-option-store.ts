@@ -19,6 +19,7 @@ type CreateOptionSetInput = {
   options: CareOption[];
   model: string;
   promptVersion: string;
+  guidance?: string;
 };
 
 export type ResolvedSelection = {
@@ -47,6 +48,7 @@ class AiOptionStore {
       options: input.options.map((item) => ({ ...item })),
       model: input.model,
       promptVersion: input.promptVersion,
+      guidance: input.guidance,
       generatedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
       pathIntentCodes: [...input.pathIntentCodes],
@@ -132,6 +134,7 @@ function publicSet(set: StoredOptionSet): AiOptionSet {
     model: set.model,
     stepLabel: set.stepLabel,
     promptVersion: set.promptVersion,
+    guidance: set.guidance,
     generatedAt: set.generatedAt,
     expiresAt: set.expiresAt,
     options: set.options.map((item) => ({ ...item })),

@@ -311,6 +311,52 @@ p {
   line-height: 1;
 }
 
+.ai-insight-strip {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid #a9cfc9;
+  border-left: 4px solid var(--teal);
+  background: #f3fbf9;
+}
+
+.ai-insight-meta span,
+.ai-insight-meta small {
+  display: block;
+}
+
+.ai-insight-meta span {
+  color: var(--teal-dark);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ai-insight-meta i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 3px rgba(22, 122, 116, 0.12);
+}
+
+.ai-insight-meta small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ai-insight-strip p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 .option-loading,
 .option-error {
   min-height: 210px;
@@ -384,6 +430,27 @@ p {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.option-target-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-option-marker {
+  display: inline-grid;
+  min-width: 25px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid #9cc9c2;
+  border-radius: 4px;
+  background: #eaf7f4;
+  color: var(--teal-dark);
+  font-size: 10px;
+  font-weight: 900;
 }
 
 .key-label {
@@ -1132,6 +1199,11 @@ p {
   .option-source-row small {
     margin-left: 0;
     text-align: left;
+  }
+
+  .ai-insight-strip {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .option-grid.three-options {

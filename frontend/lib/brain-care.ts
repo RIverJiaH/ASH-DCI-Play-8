@@ -29,6 +29,7 @@ export type AiOptionSet = {
   options: CareOption[];
   model: string;
   promptVersion: string;
+  guidance?: string;
   generatedAt: string;
   expiresAt: string;
 };

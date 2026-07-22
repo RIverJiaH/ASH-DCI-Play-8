@@ -285,16 +285,20 @@ test("freezes controlled AI options and leaves device execution disabled", async
 });
 
 test("keeps DeepSeek generation server-side and constrained", async () => {
-  const [provider, service, envExample] = await Promise.all([
+  const [provider, service, page, envExample] = await Promise.all([
     readFile(new URL("../lib/server/deepseek-option-provider.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/server/ai-option-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../.env.example", import.meta.url), "utf8"),
   ]);
 
   assert.match(provider, /api\.deepseek\.com/);
   assert.match(provider, /response_format/);
   assert.match(provider, /approvedById/);
+  assert.match(provider, /guidance/);
   assert.match(service, /using approved fallback/);
+  assert.match(page, /DeepSeek 实时分析/);
+  assert.match(page, /ai-option-marker/);
   assert.match(envExample, /DEEPSEEK_API_KEY=/);
   assert.doesNotMatch(envExample, /sk-[a-zA-Z0-9]{12,}/);
 });

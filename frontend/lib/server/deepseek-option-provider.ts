@@ -9,6 +9,7 @@ type GenerateDeepSeekOptionsInput = {
 
 type DeepSeekPayload = {
   question?: unknown;
+  guidance?: unknown;
   options?: unknown;
 };
 
@@ -19,7 +20,7 @@ type DeepSeekOption = {
 
 export async function generateDeepSeekOptions(
   input: GenerateDeepSeekOptionsInput,
-): Promise<{ question: string; options: CareOption[]; model: string }> {
+): Promise<{ question: string; guidance: string; options: CareOption[]; model: string }> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not configured");
 
@@ -48,8 +49,11 @@ export async function generateDeepSeekOptions(
               "你是住院患者脑控表达 Demo 的受控选项编辑器。",
               "只能使用用户提供的候选 id，不得新增、删除或修改医疗意图。",
               "可以调整三个候选项的顺序，并将 label 改写为清晰、无歧义、最多 12 个汉字的短语。",
+              "guidance 用一句不超过 50 个汉字的话，说明本轮如何根据已选需求组织引导选项。",
+              "不得声称读取了未提供的病历、检查或生命体征，也不得使用发生率、常见性或临床优先级作为排序依据。",
+              "guidance 示例：已根据基本照护需求整理疼痛、饮水口腔和体位选项，便于继续确认。",
               "不得给出诊断、治疗建议、药物建议或设备执行指令，不得生成返回或取消选项。",
-              "只输出 json，格式为：{\"question\":\"一句简短引导语\",\"options\":[{\"id\":\"候选id\",\"label\":\"短标签\"}]}。",
+              "只输出 json，格式为：{\"question\":\"一句简短引导语\",\"guidance\":\"本轮选项组织说明\",\"options\":[{\"id\":\"候选id\",\"label\":\"短标签\"}]}。",
             ].join("\n"),
           },
           {
@@ -103,13 +107,14 @@ function validatePayload(
   value: unknown,
   defaultQuestion: string,
   approvedOptions: CareOption[],
-): { question: string; options: CareOption[] } {
+): { question: string; guidance: string; options: CareOption[] } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("DeepSeek response is not a JSON object");
   }
 
   const payload = value as DeepSeekPayload;
   const question = normalizeQuestion(payload.question, defaultQuestion);
+  const guidance = normalizeGuidance(payload.guidance);
   if (!Array.isArray(payload.options) || payload.options.length !== approvedOptions.length) {
     throw new Error("DeepSeek returned an invalid option count");
   }
@@ -135,7 +140,7 @@ function validatePayload(
   if (seen.size !== approvedOptions.length) {
     throw new Error("DeepSeek did not return every approved option");
   }
-  return { question, options };
+  return { question, guidance, options };
 }
 
 function normalizeQuestion(value: unknown, fallback: string): string {
@@ -143,4 +148,17 @@ function normalizeQuestion(value: unknown, fallback: string): string {
   const question = value.trim();
   if (!question || question.length > 30 || /诊断|用药|执行/.test(question)) return fallback;
   return question;
+}
+
+function normalizeGuidance(value: unknown): string {
+  if (typeof value !== "string") throw new Error("DeepSeek guidance is missing");
+  const guidance = value.trim();
+  if (
+    !guidance
+    || guidance.length > 50
+    || /诊断|治疗|用药|处方|执行设备|生命体征|发生率|常见性|最普遍|临床优先/.test(guidance)
+  ) {
+    throw new Error("DeepSeek returned unsafe guidance");
+  }
+  return guidance;
 }

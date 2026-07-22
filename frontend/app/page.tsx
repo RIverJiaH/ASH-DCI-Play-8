@@ -91,6 +91,15 @@ function formatClock(date: Date) {
   }).format(date);
 }
 
+function formatGeneratedTime(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+}
+
 async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -448,6 +457,16 @@ export default function Home() {
                   {stage > 0 && <small>仅从审核白名单生成，不执行设备操作</small>}
                 </div>
 
+                {stage > 0 && currentOptionSet?.source === "deepseek" && currentOptionSet.guidance && (
+                  <section className="ai-insight-strip" aria-label="DeepSeek 实时分析">
+                    <div className="ai-insight-meta">
+                      <span><i aria-hidden="true" />DeepSeek 实时分析</span>
+                      <small>{currentOptionSet.model} · {formatGeneratedTime(currentOptionSet.generatedAt)}</small>
+                    </div>
+                    <p>{currentOptionSet.guidance}</p>
+                  </section>
+                )}
+
                 {(optionState === "idle" || optionState === "generating") && stage > 0 ? (
                   <div className="option-loading" role="status">正在生成受控引导选项…</div>
                 ) : (
@@ -460,7 +479,10 @@ export default function Home() {
                         disabled={isBusy || !sessionId}
                         onClick={() => void selectOption(option)}
                       >
-                        <span className="target-label">{FREQUENCY_LABELS[index]}</span>
+                        <span className="option-target-row">
+                          <span className="target-label">{FREQUENCY_LABELS[index]}</span>
+                          {currentOptionSet?.source === "deepseek" && <span className="ai-option-marker">AI</span>}
+                        </span>
                         <strong>{option.label}</strong>
                         <span className="key-label">{index + 1}</span>
                       </button>
