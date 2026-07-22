@@ -5,10 +5,11 @@ export async function POST(request: Request) {
   try {
     const body = await readJson(request);
     const input = {
+      sessionId: body.sessionId,
       bed: body.bed,
       stage: body.stage,
-      label: body.label,
-      value: body.value,
+      optionId: body.optionId,
+      optionSetId: body.optionSetId,
       confidence: body.confidence,
       confirmed: body.confirmed,
       selections: body.selections,

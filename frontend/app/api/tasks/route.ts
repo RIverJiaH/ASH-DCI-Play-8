@@ -6,6 +6,7 @@ export async function POST(request: Request) {
   try {
     const body = await readJson(request);
     const task = brainCareStore.createTask(
+      body.sessionId as string,
       body.bed as string,
       body.steps as ConfidenceStep[],
     );

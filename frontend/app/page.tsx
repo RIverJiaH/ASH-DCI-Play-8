@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DEFAULT_EVENTS,
   DEFAULT_TASKS,
-  optionsFor,
-  stepLabelsFor,
+  ROOT_OPTIONS,
+  type AiOptionSet,
   type AuditEvent,
+  type CareOption,
   type CareTask,
   type ConfidenceDecision,
   type ConfidenceStep,
   type DemoState,
+  type OptionSelectionRef,
   type Priority,
   type TaskStatus,
 } from "../lib/brain-care";
@@ -33,34 +35,45 @@ const PRIORITY_LABEL: Record<Priority, string> = {
   normal: "普通",
 };
 
-function stageTitle(stage: number, selections: string[]) {
-  if (stage === 0) return "请选择需求类型";
-  if (stage === 1) {
-    return selections[0] === "疼痛不适" ? "疼痛位于哪里？" : "需要多快处理？";
-  }
-  return selections[0] === "疼痛不适" ? "疼痛程度和性质？" : "请进一步确认需求";
-}
+type PatientSelection = {
+  option: CareOption;
+  optionSetId?: string;
+  stepLabel: string;
+  confidence: number;
+  confirmed: boolean;
+};
 
-function buildNeed(selections: string[]) {
-  if (selections[0] === "疼痛不适") {
-    return `${selections[1]}${selections[2]}`;
-  }
-  return selections[2] || selections[0] || "需要协助";
-}
+type ResolvedSelection = {
+  option: CareOption;
+  optionSetId?: string;
+  stepLabel: string;
+};
 
-function buildSteps(
-  selections: string[],
-  confidences: number[],
-  confirmations: boolean[] = [],
-): ConfidenceStep[] {
-  const labels = stepLabelsFor(selections);
-
-  return selections.map((value, index) => ({
-    label: labels[index],
-    value,
-    confidence: confidences[index],
-    confirmed: confirmations[index] ?? confidences[index] >= 0.85,
+function selectionRefs(selections: PatientSelection[]): OptionSelectionRef[] {
+  return selections.map((selection) => ({
+    optionId: selection.option.id,
+    optionSetId: selection.optionSetId,
   }));
+}
+
+function buildSteps(selections: PatientSelection[]): ConfidenceStep[] {
+  return selections.map((selection) => ({
+    label: selection.stepLabel,
+    value: selection.option.label,
+    confidence: selection.confidence,
+    confirmed: selection.confirmed,
+    optionId: selection.option.id,
+    optionSetId: selection.optionSetId,
+    intentCode: selection.option.intentCode,
+    taskText: selection.option.taskText,
+    riskLevel: selection.option.riskLevel,
+    actionMode: selection.option.actionMode,
+  }));
+}
+
+function buildNeed(selections: PatientSelection[]) {
+  const option = selections.at(-1)?.option;
+  return option?.taskText || option?.label || "需要协助";
 }
 
 function formatClock(date: Date) {
@@ -92,6 +105,7 @@ async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
 type EvaluateResponse = {
   decision: ConfidenceDecision;
   events: AuditEvent[];
+  selection: ResolvedSelection;
 };
 
 type TaskMutationResponse = DemoState & { task: CareTask };
@@ -101,20 +115,36 @@ export default function Home() {
   const [tasks, setTasks] = useState<CareTask[]>(DEFAULT_TASKS);
   const [events, setEvents] = useState<AuditEvent[]>(DEFAULT_EVENTS);
   const [selectedTaskId, setSelectedTaskId] = useState("task-a01");
-  const [selections, setSelections] = useState<string[]>([]);
-  const [confidences, setConfidences] = useState<number[]>([]);
-  const [confirmations, setConfirmations] = useState<boolean[]>([]);
+  const [sessionId, setSessionId] = useState(() => `session-${crypto.randomUUID()}`);
+  const [selections, setSelections] = useState<PatientSelection[]>([]);
+  const [currentOptionSet, setCurrentOptionSet] = useState<AiOptionSet | null>(null);
+  const [optionState, setOptionState] = useState<"idle" | "generating" | "ready" | "failed">("idle");
   const [simConfidence, setSimConfidence] = useState(CONFIDENCE_BY_STEP[0]);
-  const [pendingCandidate, setPendingCandidate] = useState<string | null>(null);
+  const [pendingCandidate, setPendingCandidate] = useState<ResolvedSelection | null>(null);
   const [notice, setNotice] = useState("等待脑控输入");
   const [submitted, setSubmitted] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [clock, setClock] = useState("--:--");
 
   const stage = selections.length;
-  const options = useMemo(() => optionsFor(stage, selections), [stage, selections]);
+  const isEmergency = selections[0]?.option.intentCode === "category.emergency";
+  const isComplete = isEmergency ? stage === 1 : stage === 3;
+  const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? [];
+  const totalSteps = isEmergency ? 1 : 3;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
   const pendingCount = tasks.filter((task) => task.status === "pending").length;
+  const currentTitle = isComplete
+    ? "请确认本次需求"
+    : stage === 0
+      ? "请选择需求分类"
+      : currentOptionSet?.question || "正在生成引导选项";
+  const optionSourceLabel = stage === 0
+    ? "固定安全菜单"
+    : !currentOptionSet
+      ? "准备受控引导选项"
+      : currentOptionSet.source === "mock_ai"
+      ? "AI引导模拟 · 选项已冻结"
+      : "安全兜底 · 选项已冻结";
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +164,34 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!sessionId || submitted || isComplete || stage === 0) return;
+    const controller = new AbortController();
+
+    apiRequest<AiOptionSet>("/api/options/generate", {
+      method: "POST",
+      signal: controller.signal,
+      body: JSON.stringify({
+        sessionId,
+        bed: "A01",
+        stage,
+        selections: selectionRefs(selections),
+      }),
+    })
+      .then((optionSet) => {
+        setCurrentOptionSet(optionSet);
+        setOptionState("ready");
+        setNotice(optionSet.source === "mock_ai" ? "AI引导选项已就绪" : "已启用安全兜底选项");
+      })
+      .catch((error: Error) => {
+        if (error.name === "AbortError") return;
+        setOptionState("failed");
+        setNotice(`引导选项生成失败：${error.message}`);
+      });
+
+    return () => controller.abort();
+  }, [isComplete, sessionId, stage, submitted, selections]);
+
+  useEffect(() => {
     const updateClock = () => setClock(formatClock(new Date()));
     updateClock();
     const timer = window.setInterval(updateClock, 1000);
@@ -141,42 +199,44 @@ export default function Home() {
   }, []);
 
   function acceptChoice(
-    value: string,
+    selection: ResolvedSelection,
     confidence: number,
     confirmed: boolean,
     nextEvents: AuditEvent[],
   ) {
     const nextStage = stage + 1;
-    setSelections((current) => [...current, value]);
-    setConfidences((current) => [...current, confidence]);
-    setConfirmations((current) => [...current, confirmed]);
+    setSelections((current) => [...current, { ...selection, confidence, confirmed }]);
     setEvents(nextEvents);
     setPendingCandidate(null);
-    setNotice(`已确认：${value}`);
-    if (nextStage < 3) setSimConfidence(CONFIDENCE_BY_STEP[nextStage]);
+    setCurrentOptionSet(null);
+    setOptionState("idle");
+    setNotice(`已确认：${selection.option.label}`);
+    if (nextStage < 3 && selection.option.intentCode !== "category.emergency") {
+      setSimConfidence(CONFIDENCE_BY_STEP[nextStage]);
+    }
   }
 
-  async function selectOption(value: string, confirmed = false) {
-    if (stage >= 3 || submitted || isBusy) return;
+  async function selectOption(option: CareOption, confirmed = false) {
+    if (option.navigation === "back") {
+      goBackOneLevel();
+      return;
+    }
+    if (isComplete || submitted || isBusy || !sessionId) return;
     const confidence = Number(simConfidence.toFixed(2));
-    const step = buildSteps(
-      [...selections, value],
-      [...confidences, confidence],
-      [...confirmations, confirmed],
-    )[stage];
 
     setIsBusy(true);
     try {
       const result = await apiRequest<EvaluateResponse>("/api/brain-control/evaluate", {
         method: "POST",
         body: JSON.stringify({
+          sessionId,
           bed: "A01",
           stage,
-          label: step.label,
-          value,
+          optionId: option.id,
+          optionSetId: stage === 0 ? undefined : currentOptionSet?.id,
           confidence,
           confirmed,
-          selections,
+          selections: selectionRefs(selections),
         }),
       });
       setEvents(result.events);
@@ -186,11 +246,11 @@ export default function Home() {
         return;
       }
       if (result.decision === "confirmation_required") {
-        setPendingCandidate(value);
+        setPendingCandidate(result.selection);
         setNotice("需要再次确认本次选择");
         return;
       }
-      acceptChoice(value, confidence, confirmed, result.events);
+      acceptChoice(result.selection, confidence, confirmed, result.events);
     } catch (error) {
       setNotice(`后端处理失败：${(error as Error).message}`);
     } finally {
@@ -198,11 +258,20 @@ export default function Home() {
     }
   }
 
+  function goBackOneLevel() {
+    setSelections((current) => current.slice(0, -1));
+    setCurrentOptionSet(null);
+    setOptionState("idle");
+    setPendingCandidate(null);
+    setNotice("已返回上一级");
+    setSimConfidence(CONFIDENCE_BY_STEP[Math.max(0, stage - 1)]);
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "BUTTON") return;
-      if (activeView !== "patient" || stage >= 3 || submitted || pendingCandidate || isBusy) return;
+      if (activeView !== "patient" || isComplete || submitted || pendingCandidate || isBusy) return;
       const index = Number(event.key) - 1;
       if (index >= 0 && index < options.length) void selectOption(options[index]);
     }
@@ -211,14 +280,15 @@ export default function Home() {
   });
 
   async function confirmRequest() {
-    if (isBusy) return;
+    if (isBusy || !isComplete || !sessionId) return;
     setIsBusy(true);
     try {
       const result = await apiRequest<TaskMutationResponse>("/api/tasks", {
         method: "POST",
         body: JSON.stringify({
+          sessionId,
           bed: "A01",
-          steps: buildSteps(selections, confidences, confirmations),
+          steps: buildSteps(selections),
         }),
       });
       setTasks(result.tasks);
@@ -235,8 +305,9 @@ export default function Home() {
 
   function resetPatientFlow() {
     setSelections([]);
-    setConfidences([]);
-    setConfirmations([]);
+    setSessionId(`session-${crypto.randomUUID()}`);
+    setCurrentOptionSet(null);
+    setOptionState("idle");
     setSimConfidence(CONFIDENCE_BY_STEP[0]);
     setPendingCandidate(null);
     setNotice("等待脑控输入");
@@ -285,10 +356,15 @@ export default function Home() {
     }
   }
 
-  const resultSteps = buildSteps(selections, confidences, confirmations);
+  const resultSteps = buildSteps(selections);
   const overallConfidence = resultSteps.length
     ? Math.min(...resultSteps.map((item) => item.confidence))
     : 0;
+  const previewPriority: Priority = resultSteps.some((step) => step.riskLevel === "urgent")
+    ? "high"
+    : resultSteps.some((step) => step.riskLevel === "attention")
+      ? "medium"
+      : "normal";
 
   return (
     <div className="app-shell">
@@ -333,11 +409,11 @@ export default function Home() {
             <header className="surface-header patient-header">
               <div>
                 <span className="eyebrow">床位 A01 · 脑控表达</span>
-                <h1 id="patient-title">{submitted ? "需求已经送达" : stageTitle(stage, selections)}</h1>
+                <h1 id="patient-title">{submitted ? "需求已经送达" : currentTitle}</h1>
                 <p>{submitted ? "护理端已收到完整的分层确认记录" : "注视目标或使用数字键完成当前层选择"}</p>
               </div>
-              <div className="step-progress" aria-label={`当前第 ${Math.min(stage + 1, 3)} 步，共 3 步`}>
-                {[0, 1, 2].map((index) => (
+              <div className="step-progress" aria-label={`当前第 ${Math.min(stage + 1, totalSteps)} 步，共 ${totalSteps} 步`}>
+                {Array.from({ length: totalSteps }, (_, index) => (
                   <span
                     key={index}
                     className={index < stage ? "is-done" : index === stage && !submitted ? "is-current" : ""}
@@ -348,35 +424,51 @@ export default function Home() {
               </div>
             </header>
 
-            {!submitted && stage < 3 && (
+            {!submitted && !isComplete && (
               <>
-                <div className="option-grid" role="group" aria-label="脑控候选项">
-                  {options.map((option, index) => (
-                    <button
-                      type="button"
-                      className="ssvep-option"
-                      key={option}
-                      disabled={isBusy}
-                      onClick={() => void selectOption(option)}
-                    >
-                      <span className="target-label">{FREQUENCY_LABELS[index]}</span>
-                      <strong>{option}</strong>
-                      <span className="key-label">{index + 1}</span>
-                    </button>
-                  ))}
+                <div className="option-source-row" role="status">
+                  <span>{optionSourceLabel}</span>
+                  {stage > 0 && <small>仅从审核白名单生成，不执行设备操作</small>}
                 </div>
+
+                {(optionState === "idle" || optionState === "generating") && stage > 0 ? (
+                  <div className="option-loading" role="status">正在生成受控引导选项…</div>
+                ) : (
+                  <div className="option-grid" role="group" aria-label="脑控候选项">
+                    {options.map((option, index) => (
+                      <button
+                        type="button"
+                        className={`ssvep-option${option.navigation === "back" ? " navigation-option" : ""}`}
+                        key={option.id}
+                        disabled={isBusy || !sessionId}
+                        onClick={() => void selectOption(option)}
+                      >
+                        <span className="target-label">{FREQUENCY_LABELS[index]}</span>
+                        <strong>{option.label}</strong>
+                        <span className="key-label">{index + 1}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {optionState === "failed" && stage > 0 && (
+                  <div className="option-error" role="alert">
+                    <span>本层选项生成失败，请返回上一级后重试。</span>
+                    <button type="button" className="button secondary" onClick={goBackOneLevel}>返回上一级</button>
+                  </div>
+                )}
 
                 {pendingCandidate && (
                   <div className="confirmation-strip" role="status">
                     <div>
-                      <strong>再次确认“{pendingCandidate}”</strong>
+                      <strong>再次确认“{pendingCandidate.option.label}”</strong>
                       <span>当前置信度 {simConfidence.toFixed(2)}</span>
                     </div>
                     <div className="inline-actions">
                       <button type="button" className="button secondary" disabled={isBusy} onClick={() => setPendingCandidate(null)}>
                         取消
                       </button>
-                      <button type="button" className="button primary" disabled={isBusy} onClick={() => void selectOption(pendingCandidate, true)}>
+                      <button type="button" className="button primary" disabled={isBusy} onClick={() => void selectOption(pendingCandidate.option, true)}>
                         确认本次选择
                       </button>
                     </div>
@@ -387,28 +479,28 @@ export default function Home() {
                   {selections.length === 0 ? (
                     <span className="empty-history">尚未完成选择</span>
                   ) : selections.map((selection, index) => (
-                    <span key={`${selection}-${index}`}>
+                    <span key={`${selection.option.id}-${index}`}>
                       <b>{index + 1}</b>
-                      {selection}
-                      <em>{confidences[index].toFixed(2)}</em>
+                      {selection.option.label}
+                      <em>{selection.confidence.toFixed(2)}</em>
                     </span>
                   ))}
                 </div>
               </>
             )}
 
-            {!submitted && stage === 3 && (
+            {!submitted && isComplete && (
               <div className="request-review">
                 <div className="review-heading">
                   <div>
                     <span className="eyebrow">最终确认</span>
                     <h2>{buildNeed(selections)}</h2>
                   </div>
-                  <span className="priority-badge high">优先级 高</span>
+                  <span className={`priority-badge ${previewPriority}`}>优先级 {PRIORITY_LABEL[previewPriority]}</span>
                 </div>
                 <ConfidenceChain steps={resultSteps} />
                 <div className="confidence-summary">
-                  <p>整体置信度取三层中的最低值，用于安全决策。</p>
+                  <p>整体置信度取已确认层级中的最低值，用于安全决策。</p>
                   <strong>{overallConfidence.toFixed(2)}</strong>
                 </div>
                 <div className="review-actions">
@@ -424,7 +516,7 @@ export default function Home() {
               <div className="success-state" role="status">
                 <span className="success-mark" aria-hidden="true">✓</span>
                 <h2>{buildNeed(selections)}</h2>
-                <p>来源：脑控确认 · 整体置信度 {overallConfidence.toFixed(2)}</p>
+                <p>来源：{isEmergency ? "脑控确认" : "AI引导 · 脑控确认"} · 整体置信度 {overallConfidence.toFixed(2)}</p>
                 <div className="review-actions">
                   <button type="button" className="button secondary" onClick={resetPatientFlow}>发起新需求</button>
                   <button type="button" className="button primary" onClick={() => setActiveView("nurse")}>查看护理端</button>

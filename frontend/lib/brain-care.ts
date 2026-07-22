@@ -1,11 +1,49 @@
 export type TaskStatus = "pending" | "accepted" | "done";
 export type Priority = "high" | "medium" | "normal";
+export type RiskLevel = "normal" | "attention" | "urgent";
+export type ActionMode = "request_only";
+export type OptionSetSource = "mock_ai" | "fallback";
+
+export type CareOption = {
+  id: string;
+  intentCode: string;
+  label: string;
+  taskText: string;
+  riskLevel: RiskLevel;
+  actionMode: ActionMode;
+  navigation?: "back";
+};
+
+export type OptionSelectionRef = {
+  optionId: string;
+  optionSetId?: string;
+};
+
+export type AiOptionSet = {
+  id: string;
+  sessionId: string;
+  stage: 1 | 2;
+  question: string;
+  stepLabel: string;
+  source: OptionSetSource;
+  options: CareOption[];
+  model: string;
+  promptVersion: string;
+  generatedAt: string;
+  expiresAt: string;
+};
 
 export type ConfidenceStep = {
   label: string;
   value: string;
   confidence: number;
   confirmed?: boolean;
+  optionId?: string;
+  optionSetId?: string;
+  intentCode?: string;
+  taskText?: string;
+  riskLevel?: RiskLevel;
+  actionMode?: ActionMode;
 };
 
 export type CareTask = {
@@ -38,24 +76,66 @@ export const CONFIDENCE_THRESHOLDS = {
   acceptAtOrAbove: 0.85,
 } as const;
 
-export function optionsFor(stage: number, selections: string[]): string[] {
-  const category = selections[0];
-  if (stage === 0) return ["疼痛不适", "呼吸不适", "需要饮水", "调整体位"];
-  if (stage === 1) {
-    return category === "疼痛不适"
-      ? ["腹部", "胸部", "头部", "四肢"]
-      : ["立即处理", "尽快处理", "稍后处理", "取消需求"];
+export const ROOT_OPTIONS: CareOption[] = [
+  {
+    id: "root-emergency",
+    intentCode: "category.emergency",
+    label: "紧急求助",
+    taskText: "患者发起紧急求助",
+    riskLevel: "urgent",
+    actionMode: "request_only",
+  },
+  {
+    id: "root-basic-care",
+    intentCode: "category.basic_care",
+    label: "基本照护",
+    taskText: "患者需要基本照护",
+    riskLevel: "normal",
+    actionMode: "request_only",
+  },
+  {
+    id: "root-environment",
+    intentCode: "category.environment",
+    label: "环境设备",
+    taskText: "患者提出环境设备需求",
+    riskLevel: "normal",
+    actionMode: "request_only",
+  },
+  {
+    id: "root-communication",
+    intentCode: "category.communication",
+    label: "交流表达",
+    taskText: "患者需要协助交流",
+    riskLevel: "normal",
+    actionMode: "request_only",
+  },
+];
+
+export function evaluateConfidence(confidence: number, confirmed = false): ConfidenceDecision {
+  if (confidence < CONFIDENCE_THRESHOLDS.rejectBelow) return "rejected";
+  if (confidence < CONFIDENCE_THRESHOLDS.acceptAtOrAbove && !confirmed) {
+    return "confirmation_required";
   }
-  if (category === "呼吸不适") return ["胸闷", "气短", "咳嗽", "其他不适"];
-  if (category === "需要饮水") return ["少量饮水", "润唇", "漱口", "其他需求"];
-  if (category === "调整体位") return ["抬高床头", "左侧卧", "右侧卧", "恢复平卧"];
-  return ["重度持续疼痛", "中度间歇疼痛", "轻度持续疼痛", "疼痛减轻"];
+  return "accepted";
 }
 
-export function stepLabelsFor(selections: string[]): string[] {
-  return selections[0] === "疼痛不适"
-    ? ["需求类型", "疼痛部位", "程度与性质"]
-    : ["需求类型", "处理时效", "具体需求"];
+export function isEmergencyPath(steps: ConfidenceStep[]): boolean {
+  return steps[0]?.intentCode === "category.emergency" || steps[0]?.value === "紧急求助";
+}
+
+export function expectedStepCount(steps: ConfidenceStep[]): number {
+  return isEmergencyPath(steps) ? 1 : 3;
+}
+
+export function needFromSteps(steps: ConfidenceStep[]): string {
+  const last = steps.at(-1);
+  return last?.taskText?.trim() || last?.value?.trim() || "需要协助";
+}
+
+export function priorityFromSteps(steps: ConfidenceStep[]): Priority {
+  if (steps.some((step) => step.riskLevel === "urgent")) return "high";
+  if (steps.some((step) => step.riskLevel === "attention")) return "medium";
+  return "normal";
 }
 
 export const DEFAULT_TASKS: CareTask[] = [
@@ -108,27 +188,6 @@ export const DEFAULT_EVENTS: AuditEvent[] = [
   { id: "event-2", time: "14:27:03", title: "护理人员已接单", detail: "B06 · 调整体位" },
   { id: "event-3", time: "14:25:18", title: "任务已完成", detail: "C12 · 少量饮水" },
 ];
-
-export function evaluateConfidence(confidence: number, confirmed = false): ConfidenceDecision {
-  if (confidence < CONFIDENCE_THRESHOLDS.rejectBelow) return "rejected";
-  if (confidence < CONFIDENCE_THRESHOLDS.acceptAtOrAbove && !confirmed) {
-    return "confirmation_required";
-  }
-  return "accepted";
-}
-
-export function needFromSteps(steps: ConfidenceStep[]): string {
-  const values = steps.map((step) => step.value);
-  if (values[0] === "疼痛不适") return `${values[1] ?? ""}${values[2] ?? ""}`;
-  return values[2] || values[0] || "需要协助";
-}
-
-export function priorityFromSteps(steps: ConfidenceStep[]): Priority {
-  const need = needFromSteps(steps);
-  if (need.includes("重度") || steps[1]?.value === "立即处理") return "high";
-  if (steps[1]?.value === "稍后处理") return "normal";
-  return "medium";
-}
 
 export function cloneDemoState(): DemoState {
   return {

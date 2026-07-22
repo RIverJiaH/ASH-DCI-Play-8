@@ -1,36 +1,29 @@
 import {
   cloneDemoState,
   evaluateConfidence,
+  expectedStepCount,
   needFromSteps,
-  optionsFor,
   priorityFromSteps,
-  stepLabelsFor,
   type AuditEvent,
   type CareTask,
   type ConfidenceDecision,
   type ConfidenceStep,
   type DemoState,
+  type OptionSelectionRef,
   type TaskStatus,
 } from "../brain-care";
-
-export class DomainError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-    readonly code = "INVALID_REQUEST",
-  ) {
-    super(message);
-  }
-}
+import { aiOptionStore, type ResolvedSelection } from "./ai-option-store";
+import { DomainError } from "./domain-error";
 
 type BrainInput = {
+  sessionId: string;
   bed: string;
   stage: number;
-  label: string;
-  value: string;
+  optionId: string;
+  optionSetId?: string;
   confidence: number;
   confirmed?: boolean;
-  selections: string[];
+  selections: OptionSelectionRef[];
 };
 
 type TaskAction = "accept" | "complete" | "transfer";
@@ -50,29 +43,37 @@ class BrainCareStore {
 
   reset(): DemoState {
     this.state = cloneDemoState();
+    aiOptionStore.reset();
     return this.snapshot();
   }
 
-  evaluateInput(input: BrainInput): { decision: ConfidenceDecision; event?: AuditEvent } {
-    validateBrainInput(input);
+  evaluateInput(input: BrainInput): {
+    decision: ConfidenceDecision;
+    event?: AuditEvent;
+    selection: ResolvedSelection;
+  } {
+    const selection = validateBrainInput(input);
     const decision = evaluateConfidence(input.confidence, input.confirmed);
 
-    if (decision === "confirmation_required") return { decision };
+    if (decision === "confirmation_required") return { decision, selection };
 
     const title = decision === "accepted" ? "脑控选择已确认" : "脑控输入已拒绝";
-    const event = this.addEvent(title, `${input.value} · 置信度 ${input.confidence.toFixed(2)}`);
-    return { decision, event };
+    const event = this.addEvent(
+      title,
+      `${selection.option.label} · 置信度 ${input.confidence.toFixed(2)}`,
+    );
+    return { decision, event, selection };
   }
 
-  createTask(bed: string, steps: ConfidenceStep[]): CareTask {
+  createTask(sessionId: string, bed: string, steps: ConfidenceStep[]): CareTask {
     const normalizedBed = validateBed(bed);
-    const normalizedSteps = validateTaskSteps(steps);
+    const normalizedSteps = validateTaskSteps(sessionId, steps);
     const need = needFromSteps(normalizedSteps);
     const task: CareTask = {
       id: `task-${normalizedBed.toLowerCase()}-${Date.now()}`,
       bed: normalizedBed,
       need,
-      source: "脑控确认",
+      source: normalizedSteps.length > 1 ? "AI引导 · 脑控确认" : "脑控确认",
       priority: priorityFromSteps(normalizedSteps),
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -123,34 +124,40 @@ class BrainCareStore {
   }
 }
 
-function validateBrainInput(input: BrainInput) {
+function validateBrainInput(input: BrainInput): ResolvedSelection {
   validateBed(input.bed);
   if (!Number.isInteger(input.stage) || input.stage < 0 || input.stage > 2) {
     throw new DomainError("stage 必须是 0、1 或 2");
   }
-  validateText(input.label, "label");
-  validateText(input.value, "value");
   validateConfidence(input.confidence);
   if (!Array.isArray(input.selections) || input.selections.length !== input.stage) {
     throw new DomainError("selections 必须包含当前层之前的选择");
   }
-  validateSelectionPath([...input.selections, input.value]);
-  const expectedLabel = stepLabelsFor([...input.selections, input.value])[input.stage];
-  if (input.label !== expectedLabel) {
-    throw new DomainError(`第 ${input.stage + 1} 层标签必须是 ${expectedLabel}`);
-  }
+  const path = aiOptionStore.resolvePath(input.sessionId, [
+    ...input.selections,
+    { optionId: input.optionId, optionSetId: input.optionSetId },
+  ]);
+  return path[input.stage];
 }
 
-function validateTaskSteps(steps: ConfidenceStep[]): ConfidenceStep[] {
-  if (!Array.isArray(steps) || steps.length !== 3) {
-    throw new DomainError("护理任务必须包含 3 层确认结果");
+function validateTaskSteps(sessionId: string, steps: ConfidenceStep[]): ConfidenceStep[] {
+  if (!Array.isArray(steps) || steps.length < 1 || steps.length > 3) {
+    throw new DomainError("护理任务必须包含 1 到 3 层确认结果");
   }
 
-  const normalized = steps.map((step, index) => {
-    validateText(step.label, `steps[${index}].label`);
-    validateText(step.value, `steps[${index}].value`);
-    validateConfidence(step.confidence);
+  const refs = steps.map((step, index) => {
+    if (typeof step.optionId !== "string" || !step.optionId.trim()) {
+      throw new DomainError(`steps[${index}].optionId 不能为空`);
+    }
+    return { optionId: step.optionId, optionSetId: step.optionSetId };
+  });
+  const resolved = aiOptionStore.resolvePath(sessionId, refs);
+  if (steps.length !== expectedStepCount(stepsFromResolved(resolved))) {
+    throw new DomainError("选择路径尚未完成或包含多余层级", 422, "INCOMPLETE_SELECTION_PATH");
+  }
 
+  return steps.map((step, index) => {
+    validateConfidence(step.confidence);
     const decision = evaluateConfidence(step.confidence, step.confirmed);
     if (decision !== "accepted") {
       throw new DomainError(
@@ -161,43 +168,35 @@ function validateTaskSteps(steps: ConfidenceStep[]): ConfidenceStep[] {
         "UNCONFIRMED_STEP",
       );
     }
-
+    const authoritative = resolved[index];
     return {
-      label: step.label.trim(),
-      value: step.value.trim(),
+      label: authoritative.stepLabel,
+      value: authoritative.option.label,
       confidence: Number(step.confidence.toFixed(2)),
       confirmed: Boolean(step.confirmed),
+      optionId: authoritative.option.id,
+      optionSetId: authoritative.optionSetId,
+      intentCode: authoritative.option.intentCode,
+      taskText: authoritative.option.taskText,
+      riskLevel: authoritative.option.riskLevel,
+      actionMode: authoritative.option.actionMode,
     };
   });
-  validateSelectionPath(normalized.map((step) => step.value));
-  const expectedLabels = stepLabelsFor(normalized.map((step) => step.value));
-  normalized.forEach((step, index) => {
-    if (step.label !== expectedLabels[index]) {
-      throw new DomainError(`第 ${index + 1} 层标签必须是 ${expectedLabels[index]}`);
-    }
-  });
-  return normalized;
 }
 
-function validateSelectionPath(values: string[]) {
-  values.forEach((value, index) => {
-    const options = optionsFor(index, values.slice(0, index));
-    if (!options.includes(value)) {
-      throw new DomainError(`第 ${index + 1} 层选项不在允许范围内`, 422, "INVALID_SELECTION");
-    }
-  });
+function stepsFromResolved(resolved: ResolvedSelection[]): ConfidenceStep[] {
+  return resolved.map((item) => ({
+    label: item.stepLabel,
+    value: item.option.label,
+    confidence: 1,
+    intentCode: item.option.intentCode,
+  }));
 }
 
 function validateBed(value: string): string {
   const bed = typeof value === "string" ? value.trim().toUpperCase() : "";
   if (!/^[A-Z]\d{2}$/.test(bed)) throw new DomainError("bed 格式必须类似 A01");
   return bed;
-}
-
-function validateText(value: string, field: string) {
-  if (typeof value !== "string" || !value.trim() || value.trim().length > 80) {
-    throw new DomainError(`${field} 必须是 1 到 80 个字符`);
-  }
 }
 
 function validateConfidence(value: number) {

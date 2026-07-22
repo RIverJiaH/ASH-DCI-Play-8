@@ -1,0 +1,152 @@
+import {
+  ROOT_OPTIONS,
+  type AiOptionSet,
+  type CareOption,
+  type OptionSelectionRef,
+  type OptionSetSource,
+} from "../brain-care";
+import { DomainError } from "./domain-error";
+
+type StoredOptionSet = AiOptionSet & { pathIntentCodes: string[] };
+
+type CreateOptionSetInput = {
+  sessionId: string;
+  stage: 1 | 2;
+  pathIntentCodes: string[];
+  question: string;
+  stepLabel: string;
+  source: OptionSetSource;
+  options: CareOption[];
+  model: string;
+  promptVersion: string;
+};
+
+export type ResolvedSelection = {
+  option: CareOption;
+  optionSetId?: string;
+  stepLabel: string;
+};
+
+class AiOptionStore {
+  private sets = new Map<string, StoredOptionSet>();
+
+  reset() {
+    this.sets.clear();
+  }
+
+  create(input: CreateOptionSetInput): AiOptionSet {
+    validateGeneratedOptions(input.options);
+    const now = new Date();
+    const set: StoredOptionSet = {
+      id: `options-${crypto.randomUUID()}`,
+      sessionId: validateSessionId(input.sessionId),
+      stage: input.stage,
+      question: input.question,
+      stepLabel: input.stepLabel,
+      source: input.source,
+      options: input.options.map((item) => ({ ...item })),
+      model: input.model,
+      promptVersion: input.promptVersion,
+      generatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
+      pathIntentCodes: [...input.pathIntentCodes],
+    };
+    this.sets.set(set.id, set);
+    return publicSet(set);
+  }
+
+  resolvePath(sessionId: string, selections: OptionSelectionRef[]): ResolvedSelection[] {
+    const normalizedSessionId = validateSessionId(sessionId);
+    if (!Array.isArray(selections) || selections.length > 3) {
+      throw new DomainError("selections 必须是最多 3 层的选项引用");
+    }
+
+    const resolved: ResolvedSelection[] = [];
+    selections.forEach((selection, stage) => {
+      if (!selection || typeof selection.optionId !== "string") {
+        throw new DomainError(`第 ${stage + 1} 层缺少 optionId`);
+      }
+
+      if (stage === 0) {
+        if (selection.optionSetId) throw new DomainError("一级选项不应包含 optionSetId");
+        const option = ROOT_OPTIONS.find((item) => item.id === selection.optionId);
+        if (!option) throw new DomainError("一级选项不在允许范围内", 422, "INVALID_SELECTION");
+        resolved.push({ option: { ...option }, stepLabel: "需求分类" });
+        return;
+      }
+
+      const optionSetId = selection.optionSetId?.trim();
+      const set = optionSetId ? this.sets.get(optionSetId) : undefined;
+      if (!set) throw new DomainError(`第 ${stage + 1} 层选项凭证不存在`, 422, "OPTION_SET_NOT_FOUND");
+      if (set.sessionId !== normalizedSessionId || set.stage !== stage) {
+        throw new DomainError("选项凭证与当前会话或层级不匹配", 422, "OPTION_SET_MISMATCH");
+      }
+      if (Date.parse(set.expiresAt) <= Date.now()) {
+        throw new DomainError("选项凭证已过期，请重新生成", 422, "OPTION_SET_EXPIRED");
+      }
+      const pathIntentCodes = resolved.map((item) => item.option.intentCode);
+      if (set.pathIntentCodes.join("|") !== pathIntentCodes.join("|")) {
+        throw new DomainError("选项凭证与当前选择路径不匹配", 422, "OPTION_PATH_MISMATCH");
+      }
+      const option = set.options.find((item) => item.id === selection.optionId);
+      if (!option) throw new DomainError("选项不属于当前选项集", 422, "INVALID_SELECTION");
+      if (option.navigation) throw new DomainError("返回选项不能作为需求提交", 422, "NAVIGATION_ONLY");
+      resolved.push({ option: { ...option }, optionSetId: set.id, stepLabel: set.stepLabel });
+    });
+    return resolved;
+  }
+}
+
+function validateGeneratedOptions(options: CareOption[]) {
+  if (!Array.isArray(options) || options.length !== 4) {
+    throw new DomainError("动态选项必须固定为 4 个", 500, "INVALID_GENERATED_OPTIONS");
+  }
+  const labels = new Set<string>();
+  const ids = new Set<string>();
+  options.forEach((option, index) => {
+    if (!option.id || !option.intentCode || !option.label || option.label.length > 12) {
+      throw new DomainError("动态选项字段不完整或文案超过 12 个字符", 500, "INVALID_GENERATED_OPTIONS");
+    }
+    if (labels.has(option.label) || ids.has(option.id)) {
+      throw new DomainError("动态选项存在重复", 500, "INVALID_GENERATED_OPTIONS");
+    }
+    labels.add(option.label);
+    ids.add(option.id);
+    if (index === options.length - 1 && option.navigation !== "back") {
+      throw new DomainError("最后一个动态选项必须是返回上一级", 500, "INVALID_GENERATED_OPTIONS");
+    }
+    if (index < options.length - 1 && option.navigation) {
+      throw new DomainError("推荐选项不能是导航动作", 500, "INVALID_GENERATED_OPTIONS");
+    }
+  });
+}
+
+function validateSessionId(value: string): string {
+  const sessionId = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-zA-Z0-9-]{8,80}$/.test(sessionId)) {
+    throw new DomainError("sessionId 格式无效");
+  }
+  return sessionId;
+}
+
+function publicSet(set: StoredOptionSet): AiOptionSet {
+  return {
+    id: set.id,
+    sessionId: set.sessionId,
+    stage: set.stage,
+    question: set.question,
+    source: set.source,
+    model: set.model,
+    stepLabel: set.stepLabel,
+    promptVersion: set.promptVersion,
+    generatedAt: set.generatedAt,
+    expiresAt: set.expiresAt,
+    options: set.options.map((item) => ({ ...item })),
+  };
+}
+
+const globalOptionStore = globalThis as typeof globalThis & {
+  __brainCareAiOptionStore?: AiOptionStore;
+};
+
+export const aiOptionStore = globalOptionStore.__brainCareAiOptionStore ??= new AiOptionStore();

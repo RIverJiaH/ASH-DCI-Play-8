@@ -1,4 +1,4 @@
-import { DomainError } from "../../lib/server/brain-care-store";
+import { DomainError } from "../../lib/server/domain-error";
 
 export async function readJson(request: Request): Promise<Record<string, unknown>> {
   try {

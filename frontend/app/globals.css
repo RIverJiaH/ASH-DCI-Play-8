@@ -264,6 +264,47 @@ p {
   color: #fff;
 }
 
+.option-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 22px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--teal);
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.option-source-row span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.option-source-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.option-loading,
+.option-error {
+  min-height: 210px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 16px 0 22px;
+  border: 1px dashed var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.option-error {
+  flex-direction: column;
+  color: var(--danger);
+}
+
 .option-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -301,6 +342,15 @@ p {
 .ssvep-option:hover {
   border-color: var(--teal);
   background: var(--teal-soft);
+}
+
+.ssvep-option.navigation-option::before {
+  background: var(--muted);
+}
+
+.ssvep-option.navigation-option {
+  color: var(--muted);
+  box-shadow: none;
 }
 
 .ssvep-option strong {
@@ -1052,6 +1102,11 @@ p {
 
   .option-grid {
     grid-template-columns: 1fr;
+  }
+
+  .option-source-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .ssvep-option {

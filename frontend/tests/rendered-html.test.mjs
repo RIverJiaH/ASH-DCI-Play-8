@@ -43,6 +43,40 @@ async function jsonRequest(path, method, body) {
   });
 }
 
+async function generatePainPath(sessionId) {
+  const root = { optionId: "root-basic-care" };
+  const firstResponse = await jsonRequest("/api/options/generate", "POST", {
+    sessionId,
+    bed: "A01",
+    stage: 1,
+    selections: [root],
+  });
+  assert.equal(firstResponse.status, 201);
+  const firstSet = await firstResponse.json();
+  const pain = firstSet.options.find((option) => option.id === "care-pain");
+  assert.ok(pain);
+
+  const painRef = { optionId: pain.id, optionSetId: firstSet.id };
+  const secondResponse = await jsonRequest("/api/options/generate", "POST", {
+    sessionId,
+    bed: "A01",
+    stage: 2,
+    selections: [root, painRef],
+  });
+  assert.equal(secondResponse.status, 201);
+  const secondSet = await secondResponse.json();
+  const abdominal = secondSet.options.find((option) => option.id === "pain-abdominal");
+  assert.ok(abdominal);
+
+  return {
+    root,
+    painRef,
+    abdominalRef: { optionId: abdominal.id, optionSetId: secondSet.id },
+    firstSet,
+    secondSet,
+  };
+}
+
 test("server-renders the Brain Care demo", async () => {
   const response = await render();
   assert.equal(response.status, 200);
@@ -80,58 +114,64 @@ test("keeps safety thresholds and task workflow in source", async () => {
 
 test("enforces confidence decisions in the backend", async () => {
   await jsonRequest("/api/demo/reset", "POST", {});
+  const sessionId = `session-test-confidence-${Date.now()}`;
 
   const rejected = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId,
     bed: "A01",
     stage: 0,
-    label: "需求类型",
-    value: "疼痛不适",
+    optionId: "root-basic-care",
     confidence: 0.69,
     selections: [],
   });
   assert.equal(rejected.status, 200);
   assert.equal((await rejected.json()).decision, "rejected");
 
+  const path = await generatePainPath(sessionId);
+
   const needsConfirmation = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId,
     bed: "A01",
     stage: 1,
-    label: "疼痛部位",
-    value: "腹部",
+    optionId: path.painRef.optionId,
+    optionSetId: path.painRef.optionSetId,
     confidence: 0.8,
-    selections: ["疼痛不适"],
+    selections: [path.root],
   });
   assert.equal(needsConfirmation.status, 200);
   assert.equal((await needsConfirmation.json()).decision, "confirmation_required");
 
   const confirmed = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId,
     bed: "A01",
     stage: 1,
-    label: "疼痛部位",
-    value: "腹部",
+    optionId: path.painRef.optionId,
+    optionSetId: path.painRef.optionSetId,
     confidence: 0.8,
     confirmed: true,
-    selections: ["疼痛不适"],
+    selections: [path.root],
   });
   assert.equal(confirmed.status, 200);
   assert.equal((await confirmed.json()).decision, "accepted");
 
   const invalid = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId,
     bed: "A01",
     stage: 0,
-    label: "需求类型",
-    value: "疼痛不适",
+    optionId: "root-basic-care",
     confidence: 1.2,
     selections: [],
   });
   assert.equal(invalid.status, 400);
 
   const invalidSelection = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId,
     bed: "A01",
     stage: 1,
-    label: "疼痛部位",
-    value: "任意文本",
+    optionId: "made-up-option",
+    optionSetId: path.firstSet.id,
     confidence: 0.91,
-    selections: ["疼痛不适"],
+    selections: [path.root],
   });
   assert.equal(invalidSelection.status, 422);
   assert.equal((await invalidSelection.json()).error.code, "INVALID_SELECTION");
@@ -139,13 +179,16 @@ test("enforces confidence decisions in the backend", async () => {
 
 test("creates and advances a nursing task through valid states", async () => {
   await jsonRequest("/api/demo/reset", "POST", {});
+  const sessionId = `session-test-task-${Date.now()}`;
+  const path = await generatePainPath(sessionId);
 
   const created = await jsonRequest("/api/tasks", "POST", {
+    sessionId,
     bed: "A01",
     steps: [
-      { label: "需求类型", value: "疼痛不适", confidence: 0.91 },
-      { label: "疼痛部位", value: "腹部", confidence: 0.8, confirmed: true },
-      { label: "程度与性质", value: "重度持续疼痛", confidence: 0.93 },
+      { ...path.root, confidence: 0.91 },
+      { ...path.painRef, confidence: 0.8, confirmed: true },
+      { ...path.abdominalRef, confidence: 0.93 },
     ],
   });
   assert.equal(created.status, 201);
@@ -174,4 +217,35 @@ test("creates and advances a nursing task through valid states", async () => {
   const reset = await jsonRequest("/api/demo/reset", "POST", {});
   assert.equal(reset.status, 200);
   assert.equal((await reset.json()).tasks.length, 3);
+});
+
+test("freezes controlled AI options and leaves device execution disabled", async () => {
+  await jsonRequest("/api/demo/reset", "POST", {});
+  const sessionId = `session-test-safety-${Date.now()}`;
+  const path = await generatePainPath(sessionId);
+
+  assert.equal(path.firstSet.source, "mock_ai");
+  assert.equal(path.firstSet.options.length, 4);
+  assert.equal(path.firstSet.options.at(-1).navigation, "back");
+  assert.ok(path.firstSet.options.every((option) => option.actionMode === "request_only"));
+
+  const forged = await jsonRequest("/api/brain-control/evaluate", "POST", {
+    sessionId: `${sessionId}-other`,
+    bed: "A01",
+    stage: 1,
+    optionId: path.painRef.optionId,
+    optionSetId: path.painRef.optionSetId,
+    confidence: 0.91,
+    selections: [path.root],
+  });
+  assert.equal(forged.status, 422);
+  assert.equal((await forged.json()).error.code, "OPTION_SET_MISMATCH");
+
+  const deviceAction = await jsonRequest("/api/device-actions", "POST", {
+    intentCode: "environment.light.off",
+    deviceId: "placeholder-light-01",
+    action: "turn_off",
+  });
+  assert.equal(deviceAction.status, 501);
+  assert.equal((await deviceAction.json()).error.code, "DEVICE_INTEGRATION_DISABLED");
 });
