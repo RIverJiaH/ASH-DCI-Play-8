@@ -1,5 +1,5 @@
 import type { AiOptionSet, OptionSelectionRef } from "../brain-care";
-import { approvedOptionsFor, BACK_OPTION } from "./approved-options";
+import { approvedOptionsFor } from "./approved-options";
 import { aiOptionStore } from "./ai-option-store";
 import { DomainError } from "./domain-error";
 
@@ -44,7 +44,7 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     question: group.question,
     stepLabel: group.stepLabel,
     source: mode,
-    options: [...group.options, { ...BACK_OPTION }],
+    options: group.options,
     model,
     promptVersion: "ai-options-v1",
   });

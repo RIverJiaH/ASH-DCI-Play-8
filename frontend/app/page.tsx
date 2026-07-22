@@ -217,10 +217,6 @@ export default function Home() {
   }
 
   async function selectOption(option: CareOption, confirmed = false) {
-    if (option.navigation === "back") {
-      goBackOneLevel();
-      return;
-    }
     if (isComplete || submitted || isBusy || !sessionId) return;
     const confidence = Number(simConfidence.toFixed(2));
 
@@ -426,19 +422,25 @@ export default function Home() {
 
             {!submitted && !isComplete && (
               <>
-                <div className="option-source-row" role="status">
-                  <span>{optionSourceLabel}</span>
+                <div className="option-source-row">
+                  <span role="status">{optionSourceLabel}</span>
+                  {stage > 0 && (
+                    <button type="button" className="back-level-button" onClick={goBackOneLevel}>
+                      <span aria-hidden="true">←</span>
+                      返回上一级
+                    </button>
+                  )}
                   {stage > 0 && <small>仅从审核白名单生成，不执行设备操作</small>}
                 </div>
 
                 {(optionState === "idle" || optionState === "generating") && stage > 0 ? (
                   <div className="option-loading" role="status">正在生成受控引导选项…</div>
                 ) : (
-                  <div className="option-grid" role="group" aria-label="脑控候选项">
+                  <div className={`option-grid${stage > 0 ? " three-options" : ""}`} role="group" aria-label="脑控候选项">
                     {options.map((option, index) => (
                       <button
                         type="button"
-                        className={`ssvep-option${option.navigation === "back" ? " navigation-option" : ""}`}
+                        className="ssvep-option"
                         key={option.id}
                         disabled={isBusy || !sessionId}
                         onClick={() => void selectOption(option)}

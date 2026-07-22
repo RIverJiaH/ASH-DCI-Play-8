@@ -90,7 +90,6 @@ class AiOptionStore {
       }
       const option = set.options.find((item) => item.id === selection.optionId);
       if (!option) throw new DomainError("选项不属于当前选项集", 422, "INVALID_SELECTION");
-      if (option.navigation) throw new DomainError("返回选项不能作为需求提交", 422, "NAVIGATION_ONLY");
       resolved.push({ option: { ...option }, optionSetId: set.id, stepLabel: set.stepLabel });
     });
     return resolved;
@@ -98,12 +97,12 @@ class AiOptionStore {
 }
 
 function validateGeneratedOptions(options: CareOption[]) {
-  if (!Array.isArray(options) || options.length !== 4) {
-    throw new DomainError("动态选项必须固定为 4 个", 500, "INVALID_GENERATED_OPTIONS");
+  if (!Array.isArray(options) || options.length !== 3) {
+    throw new DomainError("动态选项必须固定为 3 个有效需求", 500, "INVALID_GENERATED_OPTIONS");
   }
   const labels = new Set<string>();
   const ids = new Set<string>();
-  options.forEach((option, index) => {
+  options.forEach((option) => {
     if (!option.id || !option.intentCode || !option.label || option.label.length > 12) {
       throw new DomainError("动态选项字段不完整或文案超过 12 个字符", 500, "INVALID_GENERATED_OPTIONS");
     }
@@ -112,12 +111,6 @@ function validateGeneratedOptions(options: CareOption[]) {
     }
     labels.add(option.label);
     ids.add(option.id);
-    if (index === options.length - 1 && option.navigation !== "back") {
-      throw new DomainError("最后一个动态选项必须是返回上一级", 500, "INVALID_GENERATED_OPTIONS");
-    }
-    if (index < options.length - 1 && option.navigation) {
-      throw new DomainError("推荐选项不能是导航动作", 500, "INVALID_GENERATED_OPTIONS");
-    }
   });
 }
 

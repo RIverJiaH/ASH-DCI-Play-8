@@ -11,7 +11,6 @@ export type CareOption = {
   taskText: string;
   riskLevel: RiskLevel;
   actionMode: ActionMode;
-  navigation?: "back";
 };
 
 export type OptionSelectionRef = {

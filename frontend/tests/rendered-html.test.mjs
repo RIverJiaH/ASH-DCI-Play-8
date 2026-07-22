@@ -225,8 +225,8 @@ test("freezes controlled AI options and leaves device execution disabled", async
   const path = await generatePainPath(sessionId);
 
   assert.equal(path.firstSet.source, "mock_ai");
-  assert.equal(path.firstSet.options.length, 4);
-  assert.equal(path.firstSet.options.at(-1).navigation, "back");
+  assert.equal(path.firstSet.options.length, 3);
+  assert.ok(path.firstSet.options.every((option) => option.intentCode !== "navigation.back"));
   assert.ok(path.firstSet.options.every((option) => option.actionMode === "request_only"));
 
   const forged = await jsonRequest("/api/brain-control/evaluate", "POST", {

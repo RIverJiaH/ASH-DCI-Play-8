@@ -21,16 +21,6 @@ const option = (
   actionMode: "request_only",
 });
 
-export const BACK_OPTION: CareOption = {
-  id: "navigation-back",
-  intentCode: "navigation.back",
-  label: "返回上一级",
-  taskText: "",
-  riskLevel: "normal",
-  actionMode: "request_only",
-  navigation: "back",
-};
-
 const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
   "category.basic_care": {
     question: "当前最需要哪类基本照护？",
