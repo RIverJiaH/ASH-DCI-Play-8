@@ -45,7 +45,6 @@ export default defineConfig(async () => {
 
   return {
     server: {
-      allowedHosts: ["1cf8b274.r7.cpolar.cn"],
       ...(isCodexSeatbeltSandbox
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),
