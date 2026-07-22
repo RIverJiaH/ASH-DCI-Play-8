@@ -26,7 +26,7 @@ type BrainInput = {
   selections: OptionSelectionRef[];
 };
 
-type TaskAction = "accept" | "complete" | "transfer";
+type TaskAction = "accept" | "complete" | "request_assessment" | "mark_unable" | "transfer";
 
 class BrainCareStore {
   private state = cloneDemoState();
@@ -82,6 +82,7 @@ class BrainCareStore {
       status: "pending",
       createdAt: new Date().toISOString(),
       steps: normalizedSteps,
+      updatedAt: new Date().toISOString(),
     };
 
     this.state.tasks = [task, ...this.state.tasks];
@@ -94,13 +95,20 @@ class BrainCareStore {
     if (!task) throw new DomainError("任务不存在", 404, "TASK_NOT_FOUND");
 
     if (action === "transfer") {
+      if (task.status === "done") {
+        throw new DomainError("已完成任务不能转交", 409, "INVALID_STATUS_TRANSITION");
+      }
       this.addEvent("已记录转交申请", `${task.bed} · ${task.need}`);
       return { ...task, steps: task.steps.map(cloneStep) };
     }
 
-    const expectedStatus: TaskStatus = action === "accept" ? "pending" : "accepted";
-    const nextStatus: TaskStatus = action === "accept" ? "accepted" : "done";
-    if (task.status !== expectedStatus) {
+    const allowedStatuses: Record<Exclude<TaskAction, "transfer">, TaskStatus[]> = {
+      accept: ["pending"],
+      complete: ["accepted", "review"],
+      request_assessment: ["accepted"],
+      mark_unable: ["accepted", "review"],
+    };
+    if (!allowedStatuses[action].includes(task.status)) {
       throw new DomainError(
         `任务当前状态为 ${task.status}，不能执行 ${action}`,
         409,
@@ -108,11 +116,27 @@ class BrainCareStore {
       );
     }
 
-    task.status = nextStatus;
-    this.addEvent(
-      nextStatus === "accepted" ? "护理人员已接单" : "护理任务已完成",
-      `${task.bed} · ${task.need}`,
-    );
+    if (action === "accept") {
+      task.status = "accepted";
+      task.handlingNote = "护理人员已接单，等待床旁处置。";
+      this.addEvent("护理人员已接单", `${task.bed} · ${task.need}`);
+    } else if (action === "request_assessment") {
+      task.status = "review";
+      task.handlingNote = "护理人员已标记需进一步评估。";
+      this.addEvent("任务转入进一步评估", `${task.bed} · ${task.need}`);
+    } else if (action === "mark_unable") {
+      task.status = "blocked";
+      task.handlingNote = "当前暂时无法完成，等待转交或后续处理。";
+      this.addEvent("任务暂时无法完成", `${task.bed} · ${task.need}`);
+    } else {
+      const completedAfterReview = task.status === "review";
+      task.status = "done";
+      task.handlingNote = completedAfterReview
+        ? "护理评估与处置已完成。"
+        : "护理任务已完成。";
+      this.addEvent("护理任务已完成", `${task.bed} · ${task.need}`);
+    }
+    task.updatedAt = new Date().toISOString();
     return { ...task, steps: task.steps.map(cloneStep) };
   }
 
@@ -185,6 +209,8 @@ function validateTaskSteps(sessionId: string, bed: string, steps: ConfidenceStep
       riskLevel: authoritative.option.riskLevel,
       actionMode: authoritative.option.actionMode,
       terminal: authoritative.option.terminal,
+      nextAction: authoritative.option.nextAction,
+      nextActionReason: authoritative.option.nextActionReason,
       riskNotice: authoritative.option.riskNotice,
       evidence: authoritative.option.evidence ? [...authoritative.option.evidence] : undefined,
       safetyRule: authoritative.option.safetyRule,
@@ -241,8 +267,14 @@ const globalStore = globalThis as typeof globalThis & {
 export const brainCareStore = globalStore.__brainCareStore ??= new BrainCareStore();
 
 export function parseTaskAction(value: unknown): TaskAction {
-  if (value === "accept" || value === "complete" || value === "transfer") return value;
-  throw new DomainError("action 必须是 accept、complete 或 transfer");
+  if (
+    value === "accept"
+    || value === "complete"
+    || value === "request_assessment"
+    || value === "mark_unable"
+    || value === "transfer"
+  ) return value;
+  throw new DomainError("action 必须是 accept、complete、request_assessment、mark_unable 或 transfer");
 }
 
 export type { BrainInput };

@@ -39,6 +39,9 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     throw new DomainError("当前路径没有可用的受控选项", 422, "NO_APPROVED_OPTIONS");
   }
 
+  const clinicalContextUsed = clinicalContextFor(patient, parentIntentCode);
+  const decisionSummary = decisionSummaryFor(parentIntentCode, group.options, patient);
+
   const mode = process.env.AI_OPTIONS_MODE?.trim().toLowerCase();
   if (mode === "deepseek") {
     try {
@@ -61,10 +64,18 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
         model: generated.model,
         promptVersion: "deepseek-options-v3",
         guidance: generated.guidance,
+        decisionSummary,
+        clinicalContextUsed,
       });
     } catch (error) {
       console.error("DeepSeek option generation failed; using approved fallback", error);
-      return createApprovedFallback(input, path.map((item) => item.option.intentCode), group);
+      return createApprovedFallback(
+        input,
+        path.map((item) => item.option.intentCode),
+        group,
+        decisionSummary,
+        clinicalContextUsed,
+      );
     }
   }
 
@@ -84,6 +95,9 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     options: group.options,
     model,
     promptVersion: "ai-options-v1",
+    guidance: source === "mock_ai" ? decisionSummary : "AI服务不可用，已改用审核白名单。",
+    decisionSummary,
+    clinicalContextUsed,
   });
 }
 
@@ -91,6 +105,8 @@ function createApprovedFallback(
   input: GenerateOptionsInput,
   pathIntentCodes: string[],
   group: NonNullable<ReturnType<typeof approvedOptionsFor>>,
+  decisionSummary: string,
+  clinicalContextUsed: string[],
 ): AiOptionSet {
   return aiOptionStore.create({
     sessionId: input.sessionId,
@@ -103,5 +119,52 @@ function createApprovedFallback(
     options: group.options,
     model: "approved-fallback-v1",
     promptVersion: "deepseek-options-v1",
+    guidance: "AI服务不可用，已改用审核白名单，路径判断仍由安全规则约束。",
+    decisionSummary,
+    clinicalContextUsed,
   });
+}
+
+function clinicalContextFor(
+  patient: NonNullable<ReturnType<typeof demoPatientForBed>>,
+  parentIntentCode: string,
+): string[] {
+  if (parentIntentCode === "category.basic_care") {
+    return [
+      patient.communication,
+      patient.swallowingRiskLabel,
+      patient.oralIntakeLabel,
+      patient.positionRestrictionLabel,
+    ];
+  }
+  if (parentIntentCode.startsWith("care.hydration")) {
+    return [patient.communication, patient.swallowingRiskLabel, patient.oralIntakeLabel];
+  }
+  if (parentIntentCode.startsWith("care.position")) {
+    return [patient.communication, patient.positionRestrictionLabel];
+  }
+  return [patient.communication, patient.scenarioLabel];
+}
+
+function decisionSummaryFor(
+  parentIntentCode: string,
+  options: NonNullable<ReturnType<typeof approvedOptionsFor>>["options"],
+  patient: NonNullable<ReturnType<typeof demoPatientForBed>>,
+): string {
+  if (parentIntentCode === "category.basic_care" && patient.swallowingRisk === "high") {
+    return "检测到吞咽风险：饮水口腔需求直接转护理评估；疼痛需求继续追问。";
+  }
+  if (
+    parentIntentCode === "category.basic_care"
+    && patient.positionRestriction === "postoperative_assessment"
+  ) {
+    return "检测到术后体位限制：体位需求直接转护理评估；疼痛需求继续追问。";
+  }
+  const directCount = options.filter((option) => option.nextAction === "confirm_task").length;
+  const clarifyCount = options.length - directCount;
+  if (directCount > 0 && clarifyCount > 0) {
+    return `路径判断：${directCount}项意图明确可确认建单，${clarifyCount}项需要继续追问。`;
+  }
+  if (directCount === options.length) return "本层候选意图均已明确，选择后进入护理任务确认。";
+  return "本层候选仍需细化，选择后继续生成一层受控引导选项。";
 }

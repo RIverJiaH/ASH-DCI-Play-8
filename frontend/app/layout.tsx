@@ -9,18 +9,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = `${protocol}://${host}`;
 
   return {
-    title: "脑护通 · 受控照护交互 Demo",
-    description: "脑控分层表达、置信度安全判断与护理任务闭环演示。",
+    title: "脑护通 · AI临床情境辅助 Demo V3",
+    description: "模拟病历、受控AI路径、置信度安全判断与护理任务闭环演示。",
     metadataBase: new URL(origin),
     openGraph: {
       title: "脑护通",
-      description: "脑控分层表达与护理任务闭环演示",
+      description: "模拟病历与受控AI护理任务闭环演示",
       images: [`${origin}/og.png`],
     },
     twitter: {
       card: "summary_large_image",
       title: "脑护通",
-      description: "脑控分层表达与护理任务闭环演示",
+      description: "模拟病历与受控AI护理任务闭环演示",
       images: [`${origin}/og.png`],
     },
   };

@@ -21,6 +21,8 @@ type CreateOptionSetInput = {
   model: string;
   promptVersion: string;
   guidance?: string;
+  decisionSummary: string;
+  clinicalContextUsed: string[];
 };
 
 export type ResolvedSelection = {
@@ -54,6 +56,8 @@ class AiOptionStore {
       model: input.model,
       promptVersion: input.promptVersion,
       guidance: input.guidance,
+      decisionSummary: input.decisionSummary,
+      clinicalContextUsed: [...input.clinicalContextUsed],
       generatedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(),
       pathIntentCodes: [...input.pathIntentCodes],
@@ -162,6 +166,8 @@ function publicSet(set: StoredOptionSet): AiOptionSet {
     stepLabel: set.stepLabel,
     promptVersion: set.promptVersion,
     guidance: set.guidance,
+    decisionSummary: set.decisionSummary,
+    clinicalContextUsed: [...set.clinicalContextUsed],
     generatedAt: set.generatedAt,
     expiresAt: set.expiresAt,
     options: set.options.map(cloneOption),

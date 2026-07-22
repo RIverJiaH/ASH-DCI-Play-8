@@ -22,6 +22,10 @@ const option = (
   riskLevel,
   actionMode: "request_only",
   terminal,
+  nextAction: terminal ? "confirm_task" : "clarify",
+  nextActionReason: terminal
+    ? "当前意图已经明确，可进入护理任务确认。"
+    : "当前意图仍需细化，继续生成一层受控引导选项。",
 });
 
 const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
@@ -159,6 +163,8 @@ export function approvedOptionsFor(
         riskNotice: "记录存在吞咽风险，不直接生成饮水动作。",
         evidence: [patient.swallowingRiskLabel, patient.oralIntakeLabel],
         safetyRule: "HYDRATION_REQUIRES_NURSE_ASSESSMENT",
+        nextAction: "confirm_task",
+        nextActionReason: "模拟病历已记录吞咽风险，不再追问饮水动作，直接生成护理评估任务。",
       };
     }
   }
@@ -179,6 +185,8 @@ export function approvedOptionsFor(
         riskNotice: "记录存在术后体位限制，不直接生成具体卧位动作。",
         evidence: [patient.positionRestrictionLabel, patient.communication],
         safetyRule: "POSITION_REQUIRES_NURSE_ASSESSMENT",
+        nextAction: "confirm_task",
+        nextActionReason: "模拟病历已记录术后体位限制，不再追问具体卧位，直接生成护理评估任务。",
       };
     }
   }

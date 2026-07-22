@@ -50,6 +50,7 @@ export async function generateDeepSeekOptions(
             content: [
               "你是住院患者脑控表达 Demo 的受控选项编辑器。",
               "只能使用用户提供的候选 id，不得新增、删除或修改医疗意图。",
+              "nextAction 和 nextActionReason 是安全规则给出的路径约束，不得改写或绕过。",
               "clinicalContext 是本轮唯一允许引用的模拟病历依据；只可引用其中明确提供的字段。",
               "可以调整三个候选项的顺序，并将 label 改写为清晰、无歧义、最多 12 个汉字的短语。",
               "guidance 用一句不超过 50 个汉字的话，说明本轮如何根据已选需求组织引导选项。",
@@ -65,6 +66,8 @@ export async function generateDeepSeekOptions(
               bed: input.bed,
               clinicalContext: {
                 scenario: input.patient.scenarioLabel,
+                admissionSummary: input.patient.admissionSummary,
+                diagnoses: input.patient.diagnoses,
                 communication: input.patient.communication,
                 oralIntake: input.patient.oralIntakeLabel,
                 swallowingRisk: input.patient.swallowingRiskLabel,
@@ -79,6 +82,8 @@ export async function generateDeepSeekOptions(
                 riskNotice: option.riskNotice,
                 evidence: option.evidence,
                 safetyRule: option.safetyRule,
+                nextAction: option.nextAction,
+                nextActionReason: option.nextActionReason,
               })),
             }),
           },

@@ -84,12 +84,13 @@ test("server-renders the Brain Care demo", async () => {
 
   const html = await response.text();
   assert.match(html, /脑护通/);
-  assert.match(html, /受控照护交互 Demo/);
+  assert.match(html, /AI临床情境辅助 Demo V3/);
   assert.match(html, /患者端/);
   assert.match(html, /护理端/);
   assert.match(html, /模拟脑控信号/);
   assert.match(html, /模拟病历场景/);
   assert.match(html, /吞咽风险/);
+  assert.match(html, /查看完整模拟病历/);
   assert.doesNotMatch(html, /Your site is taking shape|Starter Project|codex-preview/);
 });
 
@@ -205,6 +206,14 @@ test("creates and advances a nursing task through valid states", async () => {
   assert.equal(accepted.status, 200);
   assert.equal((await accepted.json()).task.status, "accepted");
 
+  const review = await jsonRequest(`/api/tasks/${createdBody.task.id}`, "PATCH", {
+    action: "request_assessment",
+  });
+  assert.equal(review.status, 200);
+  const reviewTask = (await review.json()).task;
+  assert.equal(reviewTask.status, "review");
+  assert.match(reviewTask.handlingNote, /进一步评估/);
+
   const completed = await jsonRequest(`/api/tasks/${createdBody.task.id}`, "PATCH", {
     action: "complete",
   });
@@ -272,7 +281,11 @@ test("applies simulated clinical context before AI option generation", async () 
   assert.ok(hydration);
   assert.equal(hydration.safetyRule, "HYDRATION_REQUIRES_NURSE_ASSESSMENT");
   assert.equal(hydration.riskLevel, "attention");
+  assert.equal(hydration.nextAction, "confirm_task");
+  assert.match(hydration.nextActionReason, /不再追问饮水动作/);
   assert.ok(hydration.evidence.includes("吞咽风险高"));
+  assert.match(swallowingSet.decisionSummary, /吞咽风险/);
+  assert.ok(swallowingSet.clinicalContextUsed.includes("吞咽风险高"));
 
   const crossBed = await jsonRequest("/api/brain-control/evaluate", "POST", {
     sessionId: swallowingSession,
@@ -312,6 +325,28 @@ test("applies simulated clinical context before AI option generation", async () 
   const position = positionSet.options.find((option) => option.id === "care-position-assessment");
   assert.ok(position);
   assert.equal(position.safetyRule, "POSITION_REQUIRES_NURSE_ASSESSMENT");
+  assert.ok(positionSet.clinicalContextUsed.includes("术后体位调整前需评估"));
+});
+
+test("records an unable-to-complete nursing outcome", async () => {
+  await jsonRequest("/api/demo/reset", "POST", {});
+  const snapshot = await (await request("/api/demo")).json();
+  const pending = snapshot.tasks.find((task) => task.status === "pending");
+  assert.ok(pending);
+
+  await jsonRequest(`/api/tasks/${pending.id}`, "PATCH", { action: "accept" });
+  const blocked = await jsonRequest(`/api/tasks/${pending.id}`, "PATCH", {
+    action: "mark_unable",
+  });
+  assert.equal(blocked.status, 200);
+  const blockedTask = (await blocked.json()).task;
+  assert.equal(blockedTask.status, "blocked");
+  assert.match(blockedTask.handlingNote, /暂时无法完成/);
+
+  const invalidComplete = await jsonRequest(`/api/tasks/${pending.id}`, "PATCH", {
+    action: "complete",
+  });
+  assert.equal(invalidComplete.status, 409);
 });
 
 test("freezes controlled AI options and leaves device execution disabled", async () => {

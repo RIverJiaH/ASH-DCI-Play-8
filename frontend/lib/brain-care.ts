@@ -1,8 +1,9 @@
-export type TaskStatus = "pending" | "accepted" | "done";
+export type TaskStatus = "pending" | "accepted" | "review" | "blocked" | "done";
 export type Priority = "high" | "medium" | "normal";
 export type RiskLevel = "normal" | "attention" | "urgent";
 export type ActionMode = "request_only";
 export type OptionSetSource = "deepseek" | "mock_ai" | "fallback";
+export type NextAction = "clarify" | "confirm_task";
 
 export type CareOption = {
   id: string;
@@ -12,6 +13,8 @@ export type CareOption = {
   riskLevel: RiskLevel;
   actionMode: ActionMode;
   terminal: boolean;
+  nextAction: NextAction;
+  nextActionReason: string;
   riskNotice?: string;
   evidence?: string[];
   safetyRule?: string;
@@ -34,6 +37,8 @@ export type AiOptionSet = {
   model: string;
   promptVersion: string;
   guidance?: string;
+  decisionSummary: string;
+  clinicalContextUsed: string[];
   generatedAt: string;
   expiresAt: string;
 };
@@ -50,6 +55,8 @@ export type ConfidenceStep = {
   riskLevel?: RiskLevel;
   actionMode?: ActionMode;
   terminal?: boolean;
+  nextAction?: NextAction;
+  nextActionReason?: string;
   riskNotice?: string;
   evidence?: string[];
   safetyRule?: string;
@@ -67,6 +74,8 @@ export type CareTask = {
   status: TaskStatus;
   createdAt: string;
   steps: ConfidenceStep[];
+  handlingNote?: string;
+  updatedAt?: string;
 };
 
 export type AuditEvent = {
@@ -97,6 +106,8 @@ export const ROOT_OPTIONS: CareOption[] = [
     riskLevel: "urgent",
     actionMode: "request_only",
     terminal: true,
+    nextAction: "confirm_task",
+    nextActionReason: "紧急求助不进入 AI 追问，直接确认并生成高优先级任务。",
   },
   {
     id: "root-basic-care",
@@ -106,6 +117,8 @@ export const ROOT_OPTIONS: CareOption[] = [
     riskLevel: "normal",
     actionMode: "request_only",
     terminal: false,
+    nextAction: "clarify",
+    nextActionReason: "需要先区分疼痛、饮水口腔或体位需求。",
   },
   {
     id: "root-environment",
@@ -115,6 +128,8 @@ export const ROOT_OPTIONS: CareOption[] = [
     riskLevel: "normal",
     actionMode: "request_only",
     terminal: false,
+    nextAction: "clarify",
+    nextActionReason: "需要确认具体环境设备和调整方向。",
   },
   {
     id: "root-communication",
@@ -124,6 +139,8 @@ export const ROOT_OPTIONS: CareOption[] = [
     riskLevel: "normal",
     actionMode: "request_only",
     terminal: false,
+    nextAction: "clarify",
+    nextActionReason: "需要确认呼叫护理、联系家属或表达协助。",
   },
 ];
 

@@ -33,6 +33,8 @@ function createSessionId() {
 const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: "待接单",
   accepted: "已接单",
+  review: "需进一步评估",
+  blocked: "暂时无法完成",
   done: "已完成",
 };
 
@@ -82,6 +84,8 @@ function buildSteps(selections: PatientSelection[]): ConfidenceStep[] {
     riskLevel: selection.option.riskLevel,
     actionMode: selection.option.actionMode,
     terminal: selection.option.terminal,
+    nextAction: selection.option.nextAction,
+    nextActionReason: selection.option.nextActionReason,
     riskNotice: selection.option.riskNotice,
     evidence: selection.option.evidence ? [...selection.option.evidence] : undefined,
     safetyRule: selection.option.safetyRule,
@@ -155,6 +159,7 @@ export default function Home() {
   const [submitted, setSubmitted] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [clock, setClock] = useState("--:--");
+  const [chartBed, setChartBed] = useState<string | null>(null);
 
   const stage = selections.length;
   const selectedPatient = DEMO_PATIENTS.find((patient) => patient.bed === patientBed) ?? DEMO_PATIENTS[0];
@@ -163,6 +168,12 @@ export default function Home() {
   const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? [];
   const totalSteps = isComplete ? stage : 3;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
+  const selectedTaskPatient = selectedTask
+    ? DEMO_PATIENTS.find((patient) => patient.bed === selectedTask.bed)
+    : undefined;
+  const chartPatient = chartBed
+    ? DEMO_PATIENTS.find((patient) => patient.bed === chartBed)
+    : undefined;
   const selectedClinicalStep = selectedTask
     ? [...selectedTask.steps].reverse().find((step) => step.riskNotice || step.safetyRule)
     : undefined;
@@ -181,6 +192,15 @@ export default function Home() {
         : currentOptionSet.source === "mock_ai"
           ? "AI引导模拟 · 选项已冻结"
           : "安全兜底 · 选项已冻结";
+  const visibleDecisionSummary = currentOptionSet?.decisionSummary
+    || (selectedPatient.swallowingRisk === "high" && selections[0]?.option.intentCode === "category.basic_care"
+      ? "检测到吞咽风险：饮水口腔需求直接转护理评估；疼痛需求继续追问。"
+      : selectedPatient.positionRestriction === "postoperative_assessment" && selections[0]?.option.intentCode === "category.basic_care"
+        ? "检测到术后体位限制：体位需求直接转护理评估；疼痛需求继续追问。"
+        : currentOptionSet?.guidance || "已按审核白名单生成本层引导选项。");
+  const visibleClinicalContext = currentOptionSet?.clinicalContextUsed?.length
+    ? currentOptionSet.clinicalContextUsed
+    : [selectedPatient.communication, selectedPatient.swallowingRiskLabel, selectedPatient.positionRestrictionLabel];
 
   useEffect(() => {
     let cancelled = false;
@@ -239,6 +259,15 @@ export default function Home() {
     const timer = window.setInterval(updateClock, 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!chartBed) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setChartBed(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [chartBed]);
 
   function acceptChoice(
     selection: ResolvedSelection,
@@ -359,7 +388,10 @@ export default function Home() {
     setNotice(nextPatient ? `已切换：${nextPatient.scenarioLabel}` : "等待脑控输入");
   }
 
-  async function mutateTask(task: CareTask, action: "accept" | "complete" | "transfer") {
+  async function mutateTask(
+    task: CareTask,
+    action: "accept" | "complete" | "request_assessment" | "mark_unable" | "transfer",
+  ) {
     if (isBusy) return;
     setIsBusy(true);
     try {
@@ -378,7 +410,7 @@ export default function Home() {
   }
 
   function updateTaskStatus(task: CareTask) {
-    if (task.status === "done") return;
+    if (task.status === "done" || task.status === "blocked") return;
     void mutateTask(task, task.status === "pending" ? "accept" : "complete");
   }
 
@@ -419,7 +451,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">脑</span>
           <div>
             <strong className="brand-name">脑护通</strong>
-            <span className="brand-role">受控照护交互 Demo V2</span>
+            <span className="brand-role">AI临床情境辅助 Demo V3</span>
           </div>
         </div>
 
@@ -483,13 +515,25 @@ export default function Home() {
                   {stage > 0 && <small>仅从审核白名单生成，不执行设备操作</small>}
                 </div>
 
-                {stage > 0 && currentOptionSet?.source === "deepseek" && currentOptionSet.guidance && (
-                  <section className="ai-insight-strip" aria-label="DeepSeek 实时分析">
+                {stage > 0 && currentOptionSet && (
+                  <section
+                    className={`ai-insight-strip ${currentOptionSet.source}`}
+                    aria-label="受控路径实时分析"
+                  >
                     <div className="ai-insight-meta">
-                      <span><i aria-hidden="true" />DeepSeek 实时分析</span>
+                      <span>
+                        <i aria-hidden="true" />
+                        {currentOptionSet.source === "deepseek" ? "DeepSeek 实时分析" : currentOptionSet.source === "mock_ai" ? "AI路径模拟" : "安全回退路径"}
+                      </span>
                       <small>{currentOptionSet.model} · {formatGeneratedTime(currentOptionSet.generatedAt)}</small>
                     </div>
-                    <p>{currentOptionSet.guidance}</p>
+                    <div className="ai-insight-copy">
+                      <strong>{visibleDecisionSummary}</strong>
+                      {currentOptionSet.guidance && currentOptionSet.guidance !== visibleDecisionSummary && <p>{currentOptionSet.guidance}</p>}
+                      <div className="context-tags" aria-label="本轮引用的模拟病历字段">
+                        {visibleClinicalContext.map((item) => <span key={item}>{item}</span>)}
+                      </div>
+                    </div>
                   </section>
                 )}
 
@@ -513,6 +557,9 @@ export default function Home() {
                           </span>
                         </span>
                         <strong>{option.label}</strong>
+                        <span className={`option-route ${option.nextAction}`}>
+                          {option.nextAction === "clarify" ? "选择后继续确认" : "选择后确认建单"}
+                        </span>
                         <span className="key-label">{index + 1}</span>
                       </button>
                     ))}
@@ -572,6 +619,10 @@ export default function Home() {
                     <span>{resultClinicalStep.riskNotice}</span>
                   </div>
                 )}
+                <div className="route-decision-alert">
+                  <span>受控路径判断</span>
+                  <strong>{resultSteps.at(-1)?.nextActionReason || "当前意图已明确，进入护理任务确认。"}</strong>
+                </div>
                 <ConfidenceChain steps={resultSteps} />
                 <div className="confidence-summary">
                   <p>整体置信度取已确认层级中的最低值，用于安全决策。</p>
@@ -629,6 +680,13 @@ export default function Home() {
                 <span>吞咽风险<strong>{selectedPatient.swallowingRiskLabel}</strong></span>
                 <span>体位限制<strong>{selectedPatient.positionRestrictionLabel}</strong></span>
               </div>
+              <button
+                type="button"
+                className="chart-open-button"
+                onClick={() => setChartBed(selectedPatient.bed)}
+              >
+                查看完整模拟病历
+              </button>
             </section>
 
             <label className="confidence-control" htmlFor="confidence">
@@ -732,6 +790,19 @@ export default function Home() {
                 <span className="source-badge">来源：{selectedTask.source}</span>
               </section>
 
+              {selectedTaskPatient && (
+                <section className="case-chart-summary" aria-labelledby="case-chart-title">
+                  <div>
+                    <span id="case-chart-title">模拟病历摘要</span>
+                    <strong>{selectedTaskPatient.admissionSummary}</strong>
+                    <small>{selectedTaskPatient.diagnoses.join(" · ")}</small>
+                  </div>
+                  <button type="button" onClick={() => setChartBed(selectedTaskPatient.bed)}>
+                    查看病历
+                  </button>
+                </section>
+              )}
+
               <section className="trace-section" aria-labelledby="chain-title">
                 <div className="section-heading">
                   <h3 id="chain-title">意图确认链</h3>
@@ -784,23 +855,51 @@ export default function Home() {
                   <div><span>当前状态</span><strong>{STATUS_LABEL[selectedTask.status]}</strong></div>
                   <div><span>安全规则</span><strong>{selectedClinicalStep ? "已触发 · 人工确认" : "人工护理确认"}</strong></div>
                 </div>
-                <div className="button-row">
+                {selectedTask.handlingNote && (
+                  <div className={`handling-note ${selectedTask.status}`}>
+                    <span>当前处置记录</span>
+                    <strong>{selectedTask.handlingNote}</strong>
+                  </div>
+                )}
+                <div className="button-row care-actions">
                   <button
                     type="button"
                     className="button secondary"
-                    disabled={isBusy}
+                    disabled={selectedTask.status === "done" || isBusy}
                     onClick={() => void mutateTask(selectedTask, "transfer")}
                   >
                     转交任务
                   </button>
+                  {selectedTask.status === "accepted" && (
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={isBusy}
+                      onClick={() => void mutateTask(selectedTask, "request_assessment")}
+                    >
+                      需进一步评估
+                    </button>
+                  )}
+                  {(selectedTask.status === "accepted" || selectedTask.status === "review") && (
+                    <button
+                      type="button"
+                      className="button secondary danger-action"
+                      disabled={isBusy}
+                      onClick={() => void mutateTask(selectedTask, "mark_unable")}
+                    >
+                      暂时无法完成
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="button primary"
-                    disabled={selectedTask.status === "done" || isBusy}
+                    disabled={selectedTask.status === "done" || selectedTask.status === "blocked" || isBusy}
                     onClick={() => updateTaskStatus(selectedTask)}
                   >
                     {selectedTask.status === "pending" && `接单并前往 ${selectedTask.bed}`}
                     {selectedTask.status === "accepted" && "标记已完成"}
+                    {selectedTask.status === "review" && "评估后完成"}
+                    {selectedTask.status === "blocked" && "等待转交处理"}
                     {selectedTask.status === "done" && "任务已完成"}
                   </button>
                 </div>
@@ -821,6 +920,52 @@ export default function Home() {
             </section>
           )}
         </main>
+      )}
+
+      {chartPatient && (
+        <div className="chart-overlay" role="presentation" onMouseDown={() => setChartBed(null)}>
+          <aside
+            className="chart-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chart-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span className="eyebrow">仅用于功能演示 · 非真实病历</span>
+                <h2 id="chart-title">床位 {chartPatient.bed} 模拟病历</h2>
+                <p>{chartPatient.patientCode} · {chartPatient.age}</p>
+              </div>
+              <button type="button" className="chart-close" title="关闭病历" aria-label="关闭病历" onClick={() => setChartBed(null)}>×</button>
+            </header>
+
+            <section className="chart-lead">
+              <span>入院与场景摘要</span>
+              <strong>{chartPatient.admissionSummary}</strong>
+              <p>{chartPatient.summary}</p>
+            </section>
+
+            <dl className="chart-fields">
+              <div><dt>模拟诊断</dt><dd>{chartPatient.diagnoses.join("；")}</dd></div>
+              <div><dt>过敏信息</dt><dd>{chartPatient.allergies}</dd></div>
+              <div><dt>表达能力</dt><dd>{chartPatient.communication}</dd></div>
+              <div><dt>沟通支持</dt><dd>{chartPatient.communicationSupport}</dd></div>
+              <div><dt>吞咽风险</dt><dd>{chartPatient.swallowingRiskLabel}</dd></div>
+              <div><dt>饮水状态</dt><dd>{chartPatient.oralIntakeLabel}</dd></div>
+              <div><dt>体位限制</dt><dd>{chartPatient.positionRestrictionLabel}</dd></div>
+            </dl>
+
+            <section className="chart-notes">
+              <h3>护理注意事项</h3>
+              <ul>{chartPatient.careNotes.map((note) => <li key={note}>{note}</li>)}</ul>
+            </section>
+
+            <footer>
+              系统仅用于表达、确认和传递需求；床旁评估、判断与处置由护理人员完成。
+            </footer>
+          </aside>
+        </div>
       )}
     </div>
   );
