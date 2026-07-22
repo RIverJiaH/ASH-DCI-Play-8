@@ -23,6 +23,12 @@ const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
 
 const FREQUENCY_LABELS = ["目标 F1", "目标 F2", "目标 F3", "目标 F4"];
 
+function createSessionId() {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  return `session-${timestamp}-${randomPart}`;
+}
+
 const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: "待接单",
   accepted: "已接单",
@@ -115,7 +121,7 @@ export default function Home() {
   const [tasks, setTasks] = useState<CareTask[]>(DEFAULT_TASKS);
   const [events, setEvents] = useState<AuditEvent[]>(DEFAULT_EVENTS);
   const [selectedTaskId, setSelectedTaskId] = useState("task-a01");
-  const [sessionId, setSessionId] = useState(() => `session-${crypto.randomUUID()}`);
+  const [sessionId, setSessionId] = useState(createSessionId);
   const [selections, setSelections] = useState<PatientSelection[]>([]);
   const [currentOptionSet, setCurrentOptionSet] = useState<AiOptionSet | null>(null);
   const [optionState, setOptionState] = useState<"idle" | "generating" | "ready" | "failed">("idle");
@@ -301,7 +307,7 @@ export default function Home() {
 
   function resetPatientFlow() {
     setSelections([]);
-    setSessionId(`session-${crypto.randomUUID()}`);
+    setSessionId(createSessionId());
     setCurrentOptionSet(null);
     setOptionState("idle");
     setSimConfidence(CONFIDENCE_BY_STEP[0]);
