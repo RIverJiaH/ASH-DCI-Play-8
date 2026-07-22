@@ -180,6 +180,7 @@ function validateTaskSteps(sessionId: string, steps: ConfidenceStep[]): Confiden
       taskText: authoritative.option.taskText,
       riskLevel: authoritative.option.riskLevel,
       actionMode: authoritative.option.actionMode,
+      terminal: authoritative.option.terminal,
     };
   });
 }
@@ -190,6 +191,7 @@ function stepsFromResolved(resolved: ResolvedSelection[]): ConfidenceStep[] {
     value: item.option.label,
     confidence: 1,
     intentCode: item.option.intentCode,
+    terminal: item.option.terminal,
   }));
 }
 

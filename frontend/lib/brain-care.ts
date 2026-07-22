@@ -2,7 +2,7 @@ export type TaskStatus = "pending" | "accepted" | "done";
 export type Priority = "high" | "medium" | "normal";
 export type RiskLevel = "normal" | "attention" | "urgent";
 export type ActionMode = "request_only";
-export type OptionSetSource = "mock_ai" | "fallback";
+export type OptionSetSource = "deepseek" | "mock_ai" | "fallback";
 
 export type CareOption = {
   id: string;
@@ -11,6 +11,7 @@ export type CareOption = {
   taskText: string;
   riskLevel: RiskLevel;
   actionMode: ActionMode;
+  terminal: boolean;
 };
 
 export type OptionSelectionRef = {
@@ -43,6 +44,7 @@ export type ConfidenceStep = {
   taskText?: string;
   riskLevel?: RiskLevel;
   actionMode?: ActionMode;
+  terminal?: boolean;
 };
 
 export type CareTask = {
@@ -83,6 +85,7 @@ export const ROOT_OPTIONS: CareOption[] = [
     taskText: "患者发起紧急求助",
     riskLevel: "urgent",
     actionMode: "request_only",
+    terminal: true,
   },
   {
     id: "root-basic-care",
@@ -91,6 +94,7 @@ export const ROOT_OPTIONS: CareOption[] = [
     taskText: "患者需要基本照护",
     riskLevel: "normal",
     actionMode: "request_only",
+    terminal: false,
   },
   {
     id: "root-environment",
@@ -99,6 +103,7 @@ export const ROOT_OPTIONS: CareOption[] = [
     taskText: "患者提出环境设备需求",
     riskLevel: "normal",
     actionMode: "request_only",
+    terminal: false,
   },
   {
     id: "root-communication",
@@ -107,6 +112,7 @@ export const ROOT_OPTIONS: CareOption[] = [
     taskText: "患者需要协助交流",
     riskLevel: "normal",
     actionMode: "request_only",
+    terminal: false,
   },
 ];
 
@@ -123,7 +129,8 @@ export function isEmergencyPath(steps: ConfidenceStep[]): boolean {
 }
 
 export function expectedStepCount(steps: ConfidenceStep[]): number {
-  return isEmergencyPath(steps) ? 1 : 3;
+  const terminalIndex = steps.findIndex((step) => step.terminal);
+  return terminalIndex >= 0 ? terminalIndex + 1 : 3;
 }
 
 export function needFromSteps(steps: ConfidenceStep[]): string {

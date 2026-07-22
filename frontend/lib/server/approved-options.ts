@@ -12,6 +12,7 @@ const option = (
   label: string,
   taskText: string,
   riskLevel: CareOption["riskLevel"] = "normal",
+  terminal = false,
 ): CareOption => ({
   id,
   intentCode,
@@ -19,6 +20,7 @@ const option = (
   taskText,
   riskLevel,
   actionMode: "request_only",
+  terminal,
 });
 
 const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
@@ -27,8 +29,8 @@ const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
     stepLabel: "照护类型",
     options: [
       option("care-pain", "care.pain", "疼痛不适", "患者报告疼痛不适", "attention"),
-      option("care-hydration", "care.hydration", "饮水口腔", "患者需要饮水或口腔护理"),
-      option("care-position", "care.position", "调整体位", "患者需要协助调整体位"),
+      option("care-hydration", "care.hydration", "饮水口腔", "患者需要饮水或口腔护理", "normal", true),
+      option("care-position", "care.position", "调整体位", "患者需要协助调整体位", "normal", true),
     ],
   },
   "category.environment": {
@@ -53,27 +55,27 @@ const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
     question: "请进一步确认疼痛情况",
     stepLabel: "具体需求",
     options: [
-      option("pain-abdominal", "care.pain.abdominal", "腹部持续重痛", "腹部重度持续疼痛", "urgent"),
-      option("pain-chest", "care.pain.chest", "胸部持续疼痛", "胸部持续疼痛", "urgent"),
-      option("pain-head-limb", "care.pain.other", "头部或四肢痛", "头部或四肢疼痛", "attention"),
+      option("pain-abdominal", "care.pain.abdominal", "腹部持续重痛", "腹部重度持续疼痛", "urgent", true),
+      option("pain-chest", "care.pain.chest", "胸部持续疼痛", "胸部持续疼痛", "urgent", true),
+      option("pain-head-limb", "care.pain.other", "头部或四肢痛", "头部或四肢疼痛", "attention", true),
     ],
   },
   "care.hydration": {
     question: "请确认需要的照护内容",
     stepLabel: "具体需求",
     options: [
-      option("hydration-water", "care.hydration.water", "少量饮水", "需要少量饮水"),
-      option("hydration-lips", "care.hydration.lips", "润唇", "需要协助润唇"),
-      option("hydration-rinse", "care.hydration.rinse", "漱口", "需要协助漱口"),
+      option("hydration-water", "care.hydration.water", "少量饮水", "需要少量饮水", "normal", true),
+      option("hydration-lips", "care.hydration.lips", "润唇", "需要协助润唇", "normal", true),
+      option("hydration-rinse", "care.hydration.rinse", "漱口", "需要协助漱口", "normal", true),
     ],
   },
   "care.position": {
     question: "请确认希望调整的体位",
     stepLabel: "具体需求",
     options: [
-      option("position-head", "care.position.raise_head", "抬高床头", "需要协助抬高床头", "attention"),
-      option("position-left", "care.position.left", "左侧卧", "需要协助调整为左侧卧", "attention"),
-      option("position-right", "care.position.right", "右侧卧", "需要协助调整为右侧卧", "attention"),
+      option("position-head", "care.position.raise_head", "抬高床头", "需要协助抬高床头", "attention", true),
+      option("position-left", "care.position.left", "左侧卧", "需要协助调整为左侧卧", "attention", true),
+      option("position-right", "care.position.right", "右侧卧", "需要协助调整为右侧卧", "attention", true),
     ],
   },
   "environment.light": {

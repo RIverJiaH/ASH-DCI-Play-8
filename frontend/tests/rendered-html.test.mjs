@@ -219,6 +219,40 @@ test("creates and advances a nursing task through valid states", async () => {
   assert.equal((await reset.json()).tasks.length, 3);
 });
 
+test("creates hydration request after two confirmed selections", async () => {
+  await jsonRequest("/api/demo/reset", "POST", {});
+  const sessionId = `session-test-hydration-${Date.now()}`;
+  const root = { optionId: "root-basic-care" };
+  const response = await jsonRequest("/api/options/generate", "POST", {
+    sessionId,
+    bed: "A01",
+    stage: 1,
+    selections: [root],
+  });
+  assert.equal(response.status, 201);
+  const optionSet = await response.json();
+  const hydration = optionSet.options.find((option) => option.id === "care-hydration");
+  assert.ok(hydration);
+  assert.equal(hydration.terminal, true);
+
+  const created = await jsonRequest("/api/tasks", "POST", {
+    sessionId,
+    bed: "A01",
+    steps: [
+      { ...root, confidence: 0.91 },
+      {
+        optionId: hydration.id,
+        optionSetId: optionSet.id,
+        confidence: 0.88,
+      },
+    ],
+  });
+  assert.equal(created.status, 201);
+  const body = await created.json();
+  assert.equal(body.task.need, "患者需要饮水或口腔护理");
+  assert.equal(body.task.steps.length, 2);
+});
+
 test("freezes controlled AI options and leaves device execution disabled", async () => {
   await jsonRequest("/api/demo/reset", "POST", {});
   const sessionId = `session-test-safety-${Date.now()}`;
@@ -248,4 +282,19 @@ test("freezes controlled AI options and leaves device execution disabled", async
   });
   assert.equal(deviceAction.status, 501);
   assert.equal((await deviceAction.json()).error.code, "DEVICE_INTEGRATION_DISABLED");
+});
+
+test("keeps DeepSeek generation server-side and constrained", async () => {
+  const [provider, service, envExample] = await Promise.all([
+    readFile(new URL("../lib/server/deepseek-option-provider.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/server/ai-option-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.env.example", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(provider, /api\.deepseek\.com/);
+  assert.match(provider, /response_format/);
+  assert.match(provider, /approvedById/);
+  assert.match(service, /using approved fallback/);
+  assert.match(envExample, /DEEPSEEK_API_KEY=/);
+  assert.doesNotMatch(envExample, /sk-[a-zA-Z0-9]{12,}/);
 });

@@ -74,6 +74,7 @@ function buildSteps(selections: PatientSelection[]): ConfidenceStep[] {
     taskText: selection.option.taskText,
     riskLevel: selection.option.riskLevel,
     actionMode: selection.option.actionMode,
+    terminal: selection.option.terminal,
   }));
 }
 
@@ -134,9 +135,9 @@ export default function Home() {
 
   const stage = selections.length;
   const isEmergency = selections[0]?.option.intentCode === "category.emergency";
-  const isComplete = isEmergency ? stage === 1 : stage === 3;
+  const isComplete = selections.at(-1)?.option.terminal === true || stage === 3;
   const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? [];
-  const totalSteps = isEmergency ? 1 : 3;
+  const totalSteps = isComplete ? stage : 3;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
   const pendingCount = tasks.filter((task) => task.status === "pending").length;
   const currentTitle = isComplete
@@ -148,9 +149,11 @@ export default function Home() {
     ? "固定安全菜单"
     : !currentOptionSet
       ? "准备受控引导选项"
-      : currentOptionSet.source === "mock_ai"
-      ? "AI引导模拟 · 选项已冻结"
-      : "安全兜底 · 选项已冻结";
+      : currentOptionSet.source === "deepseek"
+        ? "DeepSeek AI引导 · 选项已冻结"
+        : currentOptionSet.source === "mock_ai"
+          ? "AI引导模拟 · 选项已冻结"
+          : "安全兜底 · 选项已冻结";
 
   useEffect(() => {
     let cancelled = false;
@@ -186,7 +189,13 @@ export default function Home() {
       .then((optionSet) => {
         setCurrentOptionSet(optionSet);
         setOptionState("ready");
-        setNotice(optionSet.source === "mock_ai" ? "AI引导选项已就绪" : "已启用安全兜底选项");
+        setNotice(
+          optionSet.source === "deepseek"
+            ? "DeepSeek 引导选项已就绪"
+            : optionSet.source === "mock_ai"
+              ? "AI引导选项已就绪"
+              : "已启用安全兜底选项",
+        );
       })
       .catch((error: Error) => {
         if (error.name === "AbortError") return;
@@ -217,7 +226,7 @@ export default function Home() {
     setCurrentOptionSet(null);
     setOptionState("idle");
     setNotice(`已确认：${selection.option.label}`);
-    if (nextStage < 3 && selection.option.intentCode !== "category.emergency") {
+    if (nextStage < 3 && !selection.option.terminal) {
       setSimConfidence(CONFIDENCE_BY_STEP[nextStage]);
     }
   }

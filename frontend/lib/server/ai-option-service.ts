@@ -2,6 +2,7 @@ import type { AiOptionSet, OptionSelectionRef } from "../brain-care";
 import { approvedOptionsFor } from "./approved-options";
 import { aiOptionStore } from "./ai-option-store";
 import { DomainError } from "./domain-error";
+import { generateDeepSeekOptions } from "./deepseek-option-provider";
 
 type GenerateOptionsInput = {
   sessionId: string;
@@ -32,8 +33,34 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     throw new DomainError("当前路径没有可用的受控选项", 422, "NO_APPROVED_OPTIONS");
   }
 
-  const mode = process.env.AI_OPTIONS_MODE === "fallback" ? "fallback" : "mock_ai";
-  const model = mode === "mock_ai"
+  const mode = process.env.AI_OPTIONS_MODE?.trim().toLowerCase();
+  if (mode === "deepseek") {
+    try {
+      const generated = await generateDeepSeekOptions({
+        bed: input.bed.trim().toUpperCase(),
+        pathIntentCodes: path.map((item) => item.option.intentCode),
+        question: group.question,
+        options: group.options,
+      });
+      return aiOptionStore.create({
+        sessionId: input.sessionId,
+        stage: input.stage,
+        pathIntentCodes: path.map((item) => item.option.intentCode),
+        question: generated.question,
+        stepLabel: group.stepLabel,
+        source: "deepseek",
+        options: generated.options,
+        model: generated.model,
+        promptVersion: "deepseek-options-v1",
+      });
+    } catch (error) {
+      console.error("DeepSeek option generation failed; using approved fallback", error);
+      return createApprovedFallback(input, path.map((item) => item.option.intentCode), group);
+    }
+  }
+
+  const source = mode === "fallback" ? "fallback" : "mock_ai";
+  const model = source === "mock_ai"
     ? process.env.AI_OPTIONS_MODEL || "mock-ai-v1"
     : "approved-fallback-v1";
 
@@ -43,9 +70,27 @@ export async function generateAiOptionSet(input: GenerateOptionsInput): Promise<
     pathIntentCodes: path.map((item) => item.option.intentCode),
     question: group.question,
     stepLabel: group.stepLabel,
-    source: mode,
+    source,
     options: group.options,
     model,
     promptVersion: "ai-options-v1",
+  });
+}
+
+function createApprovedFallback(
+  input: GenerateOptionsInput,
+  pathIntentCodes: string[],
+  group: NonNullable<ReturnType<typeof approvedOptionsFor>>,
+): AiOptionSet {
+  return aiOptionStore.create({
+    sessionId: input.sessionId,
+    stage: input.stage,
+    pathIntentCodes,
+    question: group.question,
+    stepLabel: group.stepLabel,
+    source: "fallback",
+    options: group.options,
+    model: "approved-fallback-v1",
+    promptVersion: "deepseek-options-v1",
   });
 }
