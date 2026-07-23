@@ -648,6 +648,65 @@ p {
   background: var(--green);
 }
 
+.live-status.is-offline {
+  color: var(--muted);
+}
+
+.live-status.is-offline i {
+  background: var(--muted);
+}
+
+@keyframes ssvep-flicker {
+  0%,
+  49.99% {
+    background: #071918;
+  }
+
+  50%,
+  100% {
+    background: #ffffff;
+  }
+}
+
+.ssvep-flicker {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  animation-name: ssvep-flicker;
+  animation-timing-function: steps(1, end);
+  animation-iteration-count: infinite;
+}
+
+.input-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin-top: 18px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.input-mode-switch button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.input-mode-switch button.is-active {
+  background: var(--surface);
+  color: var(--teal-dark);
+  box-shadow: 0 1px 3px rgb(15 45 44 / 10%);
+}
+
 .demo-context-panel {
   padding: 18px 0;
   border-bottom: 1px solid var(--line);
@@ -746,6 +805,11 @@ p {
 .confidence-control input {
   width: 100%;
   accent-color: var(--teal);
+}
+
+.confidence-control input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .threshold-list {

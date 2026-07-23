@@ -25,4 +25,4 @@ npm run build
 npm test
 ```
 
-当前版本使用点击或数字键模拟脑控输入。后续将 SSVEP 分类器结果接入相同的选择接口即可。
+当前版本默认使用点击或数字键模拟脑控输入，也可切换到 OpenBCI 实时模式。实时模式由项目根目录的 `bci/openbci_lsl_bridge.py` 接收 OpenBCI GUI LSL 数据，稳定识别后通过本机 `/api/bci/events` 队列交给页面，再复用相同的选择与置信度校验接口。

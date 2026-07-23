@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   DEFAULT_EVENTS,
   DEFAULT_TASKS,
@@ -19,10 +19,12 @@ import {
 import { DEMO_PATIENTS } from "../lib/demo-patients";
 
 type View = "patient" | "nurse";
+type InputMode = "simulation" | "openbci";
 
 const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
 
 const FREQUENCY_LABELS = ["目标 F1", "目标 F2", "目标 F3", "目标 F4"];
+const EMPTY_OPTIONS: CareOption[] = [];
 
 function createSessionId() {
   const timestamp = Date.now().toString(36);
@@ -143,6 +145,46 @@ type EvaluateResponse = {
 
 type TaskMutationResponse = DemoState & { task: CareTask };
 
+type BciBridgeStatus = {
+  connected: boolean;
+  source: string;
+  streamName: string;
+  state: "offline" | "searching" | "streaming" | "idle" | "target";
+  channels: number[];
+  frequencies: number[];
+  sampleRate?: number;
+  lastSeenAt?: string;
+  lastFrequency?: number;
+  lastConfidence?: number;
+  detail?: string;
+};
+
+type BciSelectionEvent = {
+  id: number;
+  targetIndex: number;
+  confidence: number;
+  frequency: number;
+  rawScore: number;
+  margin: number;
+  stableCount: number;
+  receivedAt: string;
+};
+
+type BciPollResponse = {
+  cursor: number;
+  status: BciBridgeStatus;
+  events: BciSelectionEvent[];
+};
+
+const OFFLINE_BCI_STATUS: BciBridgeStatus = {
+  connected: false,
+  source: "openbci_ssvep",
+  streamName: "obci_eeg1",
+  state: "offline",
+  channels: [7, 8, 11],
+  frequencies: [],
+};
+
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("patient");
   const [tasks, setTasks] = useState<CareTask[]>(DEFAULT_TASKS);
@@ -160,12 +202,17 @@ export default function Home() {
   const [isBusy, setIsBusy] = useState(false);
   const [clock, setClock] = useState("--:--");
   const [chartBed, setChartBed] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<InputMode>("simulation");
+  const [bciStatus, setBciStatus] = useState<BciBridgeStatus>(OFFLINE_BCI_STATUS);
+  const [lastBciEvent, setLastBciEvent] = useState<BciSelectionEvent | null>(null);
+  const bciCursorRef = useRef(0);
+  const bciPollingRef = useRef(false);
 
   const stage = selections.length;
   const selectedPatient = DEMO_PATIENTS.find((patient) => patient.bed === patientBed) ?? DEMO_PATIENTS[0];
   const isEmergency = selections[0]?.option.intentCode === "category.emergency";
   const isComplete = selections.at(-1)?.option.terminal === true || stage === 3;
-  const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? [];
+  const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? EMPTY_OPTIONS;
   const totalSteps = isComplete ? stage : 3;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
   const selectedTaskPatient = selectedTask
@@ -287,9 +334,13 @@ export default function Home() {
     }
   }
 
-  async function selectOption(option: CareOption, confirmed = false) {
+  async function selectOption(
+    option: CareOption,
+    confirmed = false,
+    confidenceOverride?: number,
+  ) {
     if (isComplete || submitted || isBusy || !sessionId) return;
-    const confidence = Number(simConfidence.toFixed(2));
+    const confidence = Number((confidenceOverride ?? simConfidence).toFixed(2));
 
     setIsBusy(true);
     try {
@@ -324,6 +375,7 @@ export default function Home() {
       setIsBusy(false);
     }
   }
+  const selectBciOption = useEffectEvent(selectOption);
 
   function goBackOneLevel() {
     setSelections((current) => current.slice(0, -1));
@@ -338,6 +390,7 @@ export default function Home() {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "BUTTON") return;
+      if (inputMode !== "simulation") return;
       if (activeView !== "patient" || isComplete || submitted || pendingCandidate || isBusy) return;
       const index = Number(event.key) - 1;
       if (index >= 0 && index < options.length) void selectOption(options[index]);
@@ -345,6 +398,103 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
+
+  useEffect(() => {
+    if (inputMode !== "openbci") return;
+    let cancelled = false;
+
+    async function pollBci() {
+      if (cancelled || bciPollingRef.current) return;
+      bciPollingRef.current = true;
+      try {
+        const snapshot = await apiRequest<BciPollResponse>(
+          `/api/bci/events?after=${bciCursorRef.current}`,
+        );
+        if (cancelled) return;
+        bciCursorRef.current = snapshot.cursor;
+        setBciStatus(snapshot.status);
+
+        const event = snapshot.events.at(-1);
+        if (!event) return;
+        setLastBciEvent(event);
+        setSimConfidence(event.confidence);
+
+        if (
+          activeView !== "patient"
+          || submitted
+          || isComplete
+          || isBusy
+          || optionState === "generating"
+        ) {
+          setNotice(`已收到 F${event.targetIndex + 1}，当前页面暂不接受选择`);
+          return;
+        }
+
+        const option = options[event.targetIndex];
+        if (!option) {
+          setNotice(`F${event.targetIndex + 1} 当前没有对应候选项，本次输入已忽略`);
+          return;
+        }
+
+        if (pendingCandidate) {
+          if (pendingCandidate.option.id !== option.id) {
+            const expectedIndex = options.findIndex(
+              (item) => item.id === pendingCandidate.option.id,
+            );
+            setNotice(`请再次注视 F${expectedIndex + 1} 完成确认`);
+            return;
+          }
+          await selectBciOption(pendingCandidate.option, true, event.confidence);
+          return;
+        }
+
+        await selectBciOption(option, false, event.confidence);
+      } catch (error) {
+        if (!cancelled) {
+          setBciStatus((current) => ({ ...current, connected: false, state: "offline" }));
+          setNotice(`OpenBCI 接口异常：${(error as Error).message}`);
+        }
+      } finally {
+        bciPollingRef.current = false;
+      }
+    }
+
+    void pollBci();
+    const timer = window.setInterval(() => void pollBci(), 700);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    activeView,
+    inputMode,
+    isBusy,
+    isComplete,
+    optionState,
+    options,
+    pendingCandidate,
+    submitted,
+  ]);
+
+  async function changeInputMode(nextMode: InputMode) {
+    if (nextMode === inputMode) return;
+    if (nextMode === "simulation") {
+      setInputMode("simulation");
+      setNotice("已切换为点击 / 数字键模拟");
+      return;
+    }
+
+    try {
+      const snapshot = await apiRequest<BciPollResponse>("/api/bci/events");
+      bciCursorRef.current = snapshot.cursor;
+      setBciStatus(snapshot.status);
+      setLastBciEvent(null);
+      setInputMode("openbci");
+      setNotice(snapshot.status.connected ? "OpenBCI 已连接，等待稳定目标" : "等待 OpenBCI 桥接器连接");
+    } catch (error) {
+      setNotice(`无法启用 OpenBCI：${(error as Error).message}`);
+    }
+  }
 
   async function confirmRequest() {
     if (isBusy || !isComplete || !sessionId) return;
@@ -550,7 +700,18 @@ export default function Home() {
                         onClick={() => void selectOption(option)}
                       >
                         <span className="option-target-row">
-                          <span className="target-label">{FREQUENCY_LABELS[index]}</span>
+                          <span className="target-label">
+                            {inputMode === "openbci" && bciStatus.frequencies[index]
+                              ? `F${index + 1} · ${bciStatus.frequencies[index]} Hz`
+                              : FREQUENCY_LABELS[index]}
+                          </span>
+                          {inputMode === "openbci" && bciStatus.frequencies[index] && (
+                            <span
+                              className="ssvep-flicker"
+                              style={{ animationDuration: `${1 / bciStatus.frequencies[index]}s` }}
+                              aria-hidden="true"
+                            />
+                          )}
                           <span className="option-markers">
                             {option.safetyRule && <span className="safety-option-marker">需评估</span>}
                             {currentOptionSet?.source === "deepseek" && <span className="ai-option-marker">AI</span>}
@@ -654,10 +815,32 @@ export default function Home() {
             <header>
               <div>
                 <span className="eyebrow">Demo 输入源</span>
-                <h2 id="signal-title">模拟脑控信号</h2>
+                <h2 id="signal-title">{inputMode === "openbci" ? "OpenBCI 实时信号" : "模拟脑控信号"}</h2>
               </div>
-              <span className="live-status"><i />稳定</span>
+              <span className={`live-status${inputMode === "openbci" && !bciStatus.connected ? " is-offline" : ""}`}>
+                <i />
+                {inputMode === "openbci" ? (bciStatus.connected ? "已连接" : "未连接") : "稳定"}
+              </span>
             </header>
+
+            <div className="input-mode-switch" role="group" aria-label="输入方式">
+              <button
+                type="button"
+                className={inputMode === "simulation" ? "is-active" : ""}
+                aria-pressed={inputMode === "simulation"}
+                onClick={() => void changeInputMode("simulation")}
+              >
+                模拟输入
+              </button>
+              <button
+                type="button"
+                className={inputMode === "openbci" ? "is-active" : ""}
+                aria-pressed={inputMode === "openbci"}
+                onClick={() => void changeInputMode("openbci")}
+              >
+                OpenBCI
+              </button>
+            </div>
 
             <section className="demo-context-panel" aria-labelledby="demo-context-title">
               <label htmlFor="demo-patient">
@@ -701,6 +884,7 @@ export default function Home() {
                 max="0.99"
                 step="0.01"
                 value={simConfidence}
+                disabled={inputMode === "openbci"}
                 onChange={(event) => setSimConfidence(Number(event.target.value))}
               />
             </label>
@@ -712,8 +896,22 @@ export default function Home() {
             </div>
 
             <div className="signal-readout">
-              <span>输入方式</span><strong>点击 / 数字键模拟</strong>
-              <span>真实接口</span><strong>SSVEP 分类器预留</strong>
+              <span>输入方式</span>
+              <strong>{inputMode === "openbci" ? "Cyton+Daisy · LSL" : "点击 / 数字键模拟"}</strong>
+              <span>通道</span>
+              <strong>{inputMode === "openbci" ? bciStatus.channels.join(" / ") : "模拟目标 F1–F4"}</strong>
+              {inputMode === "openbci" && (
+                <>
+                  <span>数据流</span>
+                  <strong>{bciStatus.streamName}{bciStatus.sampleRate ? ` · ${bciStatus.sampleRate} Hz` : ""}</strong>
+                  <span>最近识别</span>
+                  <strong>
+                    {lastBciEvent
+                      ? `F${lastBciEvent.targetIndex + 1} · ${lastBciEvent.frequency} Hz · ${lastBciEvent.confidence.toFixed(2)}`
+                      : "尚无稳定目标"}
+                  </strong>
+                </>
+              )}
               <span>当前状态</span><strong>{notice}</strong>
             </div>
 

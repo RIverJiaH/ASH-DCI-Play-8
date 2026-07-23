@@ -14,9 +14,13 @@ async function getWorker() {
 }
 
 async function request(path = "/", init = {}) {
+  return requestUrl(`http://localhost${path}`, init);
+}
+
+async function requestUrl(url, init = {}) {
   const worker = await getWorker();
   return worker.fetch(
-    new Request(`http://localhost${path}`, init),
+    new Request(url, init),
     {
       ASSETS: {
         fetch: async () => new Response("Not found", { status: 404 }),
@@ -178,6 +182,58 @@ test("enforces confidence decisions in the backend", async () => {
   });
   assert.equal(invalidSelection.status, 422);
   assert.equal((await invalidSelection.json()).error.code, "INVALID_SELECTION");
+});
+
+test("queues local OpenBCI events without bypassing the selection API", async () => {
+  await jsonRequest("/api/demo/reset", "POST", {});
+
+  const heartbeat = await jsonRequest("/api/bci/events", "POST", {
+    type: "heartbeat",
+    source: "openbci_ssvep",
+    streamName: "obci_eeg1",
+    state: "streaming",
+    channels: [7, 8, 11],
+    frequencies: [6, 8.57, 13.85, 15],
+    sampleRate: 125,
+  });
+  assert.equal(heartbeat.status, 200);
+  assert.equal((await heartbeat.json()).status.connected, true);
+
+  const selection = await jsonRequest("/api/bci/events", "POST", {
+    type: "selection",
+    source: "openbci_ssvep",
+    streamName: "obci_eeg1",
+    state: "target",
+    channels: [7, 8, 11],
+    frequencies: [6, 8.57, 13.85, 15],
+    sampleRate: 125,
+    targetIndex: 1,
+    confidence: 0.88,
+    frequency: 8.57,
+    rawScore: 0.88,
+    margin: 0.09,
+    stableCount: 3,
+  });
+  assert.equal(selection.status, 201);
+
+  const poll = await request("/api/bci/events?after=0");
+  assert.equal(poll.status, 200);
+  const pollBody = await poll.json();
+  assert.equal(pollBody.cursor, 1);
+  assert.equal(pollBody.events.length, 1);
+  assert.equal(pollBody.events[0].targetIndex, 1);
+  assert.equal(pollBody.events[0].confidence, 0.88);
+
+  const forwarded = await request("/api/bci/events", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forwarded-for": "203.0.113.10",
+    },
+    body: JSON.stringify({ type: "heartbeat" }),
+  });
+  assert.equal(forwarded.status, 403);
+  assert.equal((await forwarded.json()).error.code, "BCI_LOCAL_ONLY");
 });
 
 test("creates and advances a nursing task through valid states", async () => {
@@ -396,6 +452,8 @@ test("keeps DeepSeek generation server-side and constrained", async () => {
   assert.match(service, /using approved fallback/);
   assert.match(page, /DeepSeek 实时分析/);
   assert.match(page, /ai-option-marker/);
+  assert.match(page, /\/api\/bci\/events/);
+  assert.match(page, /OpenBCI 实时信号/);
   assert.match(envExample, /DEEPSEEK_API_KEY=/);
   assert.doesNotMatch(envExample, /sk-[a-zA-Z0-9]{12,}/);
 });

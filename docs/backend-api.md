@@ -12,6 +12,8 @@ DeepSeek 模式只允许模型调整审核候选项的顺序和短标签。模�
 | --- | --- | --- |
 | `GET` | `/api/demo` | 获取任务、事件和置信度阈值 |
 | `POST` | `/api/brain-control/evaluate` | 判定脑控输入是拒绝、需要确认还是接受 |
+| `GET` | `/api/bci/events` | 页面轮询本机 OpenBCI 桥接状态和稳定目标事件 |
+| `POST` | `/api/bci/events` | 本机桥接器提交心跳或稳定目标；拒绝公网转发写入 |
 | `POST` | `/api/tasks` | 根据 1 到 3 层的完整确认路径创建护理任务 |
 | `PATCH` | `/api/tasks/:id` | 接单、进一步评估、暂时无法完成、完成或记录转交申请 |
 | `POST` | `/api/demo/reset` | 恢复演示种子数据 |
