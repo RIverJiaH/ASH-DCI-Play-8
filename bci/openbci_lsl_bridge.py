@@ -356,7 +356,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--stream-name", default="obci_eeg1")
     parser.add_argument("--stream-type", default="")
-    parser.add_argument("--channels", type=parse_channel_list, default=[7, 8, 11])
+    parser.add_argument("--channels", type=parse_channel_list, default=[1, 3, 4])
     parser.add_argument(
         "--freqs",
         type=parse_float_list,

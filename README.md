@@ -67,7 +67,7 @@ DEEPSEEK_API_KEY=在本机填写
 - OpenBCI `Cyton+Daisy`，16 通道。
 - OpenBCI GUI 使用 `COM6`。
 - LSL 数据流名称 `obci_eeg1`。
-- 枕区分析通道使用 GUI 中的第 `7、8、11` 通道（1-based）。
+- 枕区分析通道使用 GUI 中的第 `1、3、4` 通道（1-based）。
 - 默认候选频率为 `6 / 8.57 / 13.85 / 15 Hz`，仅用于今晚工程联调，正式演示前必须重新完成单频校准。
 
 首次使用：

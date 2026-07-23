@@ -181,7 +181,7 @@ const OFFLINE_BCI_STATUS: BciBridgeStatus = {
   source: "openbci_ssvep",
   streamName: "obci_eeg1",
   state: "offline",
-  channels: [7, 8, 11],
+  channels: [1, 3, 4],
   frequencies: [],
 };
 

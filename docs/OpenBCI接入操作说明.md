@@ -7,7 +7,7 @@
 ## 一、软件已配置
 
 - LSL 流名称：`obci_eeg1`
-- 分析通道：GUI 第 `7、8、11` 通道（1-based）
+- 分析通道：GUI 第 `1、3、4` 通道（1-based）
 - 默认频率：`6 / 8.57 / 13.85 / 15 Hz`
 - Demo 本机地址：`http://127.0.0.1:8000/`
 - 桥接接口：`http://127.0.0.1:8000/api/bci/events`
@@ -22,13 +22,13 @@ Python 环境和 `numpy / scipy / pylsl` 已在 `bci/.venv` 中安装完成。
 4. 选择 `LIVE (from Cyton)`、`Serial (from Dongle)`、`COM6`、`16 channels`。
 5. 点击 `START SYSTEM`，连接成功后点击 `Start Data Stream`。
 6. 检查 16 路 Time Series 波形；先完成阻抗检查，再退出阻抗模式开始正常采集。
-7. 确认 O1、Oz、O2 实际对应 GUI 第 `7、8、11` 通道。
+7. 确认 O1、Oz、O2 实际对应 GUI 第 `1、3、4` 通道。
 8. GUI 保持 `Time Series` 窗口打开。
 9. 打开 `Networking` Widget，选择 `LSL` 和 `Time Series`，流名称设置为 `obci_eeg1` 并启动。
 10. 双击项目根目录的 `start_public_demo.bat`。
 11. 双击项目根目录的 `start_bci_bridge.bat`。
 12. 浏览器打开 `http://127.0.0.1:8000/`，患者端右侧选择 `OpenBCI`。
-13. 页面显示“已连接”、数据流 `obci_eeg1 · 125 Hz`、通道 `7 / 8 / 11` 后再开始测试。
+13. 页面显示“已连接”、数据流 `obci_eeg1 · 125 Hz`、通道 `1 / 3 / 4` 后再开始测试。
 
 ## 三、选择操作
 
@@ -83,7 +83,7 @@ Python 环境和 `numpy / scipy / pylsl` 已在 `bci/.venv` 中安装完成。
 
 ### 目标一直识别错误
 
-- 重新核对第 `7、8、11` 通道确实对应 O1、Oz、O2。
+- 重新核对第 `1、3、4` 通道确实对应 O1、Oz、O2。
 - 检查参考电极和 BIAS/GND。
 - 降低环境交流电干扰，避免电极线晃动和面部肌肉动作。
 - 逐个频率单独测试，不要立刻用四频结果控制页面。

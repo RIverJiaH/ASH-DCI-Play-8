@@ -192,7 +192,7 @@ test("queues local OpenBCI events without bypassing the selection API", async ()
     source: "openbci_ssvep",
     streamName: "obci_eeg1",
     state: "streaming",
-    channels: [7, 8, 11],
+    channels: [1, 3, 4],
     frequencies: [6, 8.57, 13.85, 15],
     sampleRate: 125,
   });
@@ -204,7 +204,7 @@ test("queues local OpenBCI events without bypassing the selection API", async ()
     source: "openbci_ssvep",
     streamName: "obci_eeg1",
     state: "target",
-    channels: [7, 8, 11],
+    channels: [1, 3, 4],
     frequencies: [6, 8.57, 13.85, 15],
     sampleRate: 125,
     targetIndex: 1,
