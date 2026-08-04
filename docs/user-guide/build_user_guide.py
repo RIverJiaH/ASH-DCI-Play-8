@@ -370,7 +370,7 @@ def build_manual():
     add_screenshot(doc, "v3-chart-drawer.png", "图 2  模拟病历抽屉", "床位A01模拟病历抽屉，包含诊断、表达能力、风险和护理注意事项")
     doc.add_heading("病历字段如何参与判断", level=2)
     for text in (
-        "B02：吞咽风险和饮水状态用于拦截直接饮水动作。",
+        "B02：肢体功能和进食状态用于生成饮水/进食协助、肢体摆位协助等候选项。",
         "C03：术后体位限制用于拦截具体卧位动作。",
         "A01：没有特殊风险记录时，按普通受控引导流程继续。",
     ):
@@ -381,7 +381,7 @@ def build_manual():
     # Page 5: AI path.
     doc.add_heading("4  AI动态路径与安全回退", level=1)
     add_body(doc, "一级菜单保持固定。进入下一层后，服务端结合已选需求和模拟病历生成受控候选项，并冻结本轮选项凭证。")
-    add_screenshot(doc, "v3-ai-swallowing.png", "图 3  B02吞咽风险下的受控路径", "吞咽风险场景下显示安全回退路径、病历依据和动态候选项")
+    add_screenshot(doc, "v3-ai-swallowing.png", "图 3  B02肢体失能下的受控路径", "肢体失能场景下显示安全回退路径、病历依据和动态候选项")
     for text in (
         "DeepSeek 实时分析：真实API成功返回，AI只调整审核候选项的顺序和短标签。",
         "AI路径模拟：未调用真实API，用于离线演示动态路径。",
@@ -394,8 +394,8 @@ def build_manual():
 
     # Page 6: request confirmation.
     doc.add_heading("5  确认并发送患者需求", level=1)
-    add_body(doc, "当意图已经明确时，系统进入最终确认。B02选择饮水口腔后不会继续询问饮水动作，而是直接形成护理评估需求。")
-    add_screenshot(doc, "v3-request-review.png", "图 4  最终需求确认", "吞咽风险需求最终确认页，显示安全规则、路径判断和整体置信度")
+    add_body(doc, "当意图已经明确时，系统进入最终确认。B02选择饮水/进食后不会按普通自理需求处理，而是直接形成护理协助需求。")
+    add_screenshot(doc, "v3-request-review.png", "图 4  最终需求确认", "肢体失能需求最终确认页，显示安全规则、路径判断和整体置信度")
     for text in (
         "检查需求文字、优先级和安全提示。",
         "检查每层选择和对应置信度。",
@@ -410,7 +410,7 @@ def build_manual():
     # Page 7: nursing side.
     doc.add_heading("6  护理端查看任务", level=1)
     add_body(doc, "护理端左侧是任务队列，右侧显示所选任务的完整确认链、病历摘要、风险依据和处置区。")
-    add_screenshot(doc, "v3-nursing-task.png", "图 5  护理任务队列与患者需求详情", "护理端任务队列以及B02吞咽风险任务详情")
+    add_screenshot(doc, "v3-nursing-task.png", "图 5  护理任务队列与患者需求详情", "护理端任务队列以及B02肢体失能任务详情")
     for text in (
         "优先级：高、中、普通，用于演示排序和视觉提示。",
         "来源：区分脑控确认、受控引导或AI引导。",
@@ -436,11 +436,11 @@ def build_manual():
 
     # Page 9: demo scripts.
     doc.add_heading("8  推荐演示脚本", level=1)
-    doc.add_heading("场景一：吞咽风险", level=2)
+    doc.add_heading("场景一：肢体失能", level=2)
     for text in (
-        "切换到 B02 · 吞咽风险。",
+        "切换到 B02 · 肢体失能。",
         "选择“基本照护”。",
-        "观察“饮水口腔需评估”和“确认建单”标签。",
+        "观察“饮水/进食需评估”和“确认建单”标签。",
         "发送任务，在护理端查看病历依据并完成接单处置。",
     ):
         add_list_item(doc, text, numbering["number"])

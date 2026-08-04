@@ -218,7 +218,16 @@ def run_bridge(args: argparse.Namespace) -> None:
                 "score",
                 "margin",
                 "stable_count",
+                "candidate",
                 "accepted",
+                "min_score",
+                "min_margin",
+                "stable_required",
+                "window_seconds",
+                "step_seconds",
+                "harmonics",
+                "channels",
+                "frequencies",
                 "all_scores",
             ],
         )
@@ -298,7 +307,16 @@ def run_bridge(args: argparse.Namespace) -> None:
                     "score": round(score, 6),
                     "margin": round(margin, 6),
                     "stable_count": candidate_count,
+                    "candidate": int(candidate),
                     "accepted": int(accepted),
+                    "min_score": round(args.min_score, 6),
+                    "min_margin": round(args.min_margin, 6),
+                    "stable_required": args.stable_count,
+                    "window_seconds": round(args.window_seconds, 3),
+                    "step_seconds": round(args.step_seconds, 3),
+                    "harmonics": args.harmonics,
+                    "channels": ",".join(str(channel) for channel in args.channels),
+                    "frequencies": ",".join(f"{value:.3f}" for value in args.freqs),
                     "all_scores": ";".join(f"{value:.6f}" for value in scores),
                 }
             )
@@ -323,6 +341,13 @@ def run_bridge(args: argparse.Namespace) -> None:
                         "rawScore": score,
                         "margin": margin,
                         "stableCount": candidate_count,
+                        "scores": [float(value) for value in scores],
+                        "windowSeconds": args.window_seconds,
+                        "stepSeconds": args.step_seconds,
+                        "harmonics": args.harmonics,
+                        "minScore": args.min_score,
+                        "minMargin": args.min_margin,
+                        "stableRequired": args.stable_count,
                     }
                 )
                 if post_json(args.endpoint, payload):
@@ -360,7 +385,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--freqs",
         type=parse_float_list,
-        default=[6.0, 8.57, 13.85, 15.0],
+        default=[6.0, 8.57, 13.85, 15.0, 10.0],
     )
     parser.add_argument("--sample-rate", type=float, default=125.0)
     parser.add_argument("--window-seconds", type=float, default=2.5)

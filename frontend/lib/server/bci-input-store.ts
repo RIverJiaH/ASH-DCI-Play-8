@@ -22,6 +22,13 @@ export type BciSelectionEvent = {
   rawScore: number;
   margin: number;
   stableCount: number;
+  scores: number[];
+  windowSeconds?: number;
+  stepSeconds?: number;
+  harmonics?: number;
+  minScore?: number;
+  minMargin?: number;
+  stableRequired?: number;
   receivedAt: string;
 };
 
@@ -44,6 +51,13 @@ type BciSelectionInput = BciHeartbeatInput & {
   rawScore?: unknown;
   margin?: unknown;
   stableCount?: unknown;
+  scores?: unknown;
+  windowSeconds?: unknown;
+  stepSeconds?: unknown;
+  harmonics?: unknown;
+  minScore?: unknown;
+  minMargin?: unknown;
+  stableRequired?: unknown;
 };
 
 const OFFLINE_AFTER_MS = 5_000;
@@ -68,12 +82,19 @@ class BciInputStore {
   addSelection(input: BciSelectionInput): BciSelectionEvent {
     this.updateStatus({ ...input, state: "target" });
 
-    const targetIndex = integerInRange(input.targetIndex, "targetIndex", 0, 3);
+    const targetIndex = integerInRange(input.targetIndex, "targetIndex", 0, 4);
     const confidence = numberInRange(input.confidence, "confidence", 0, 1);
     const frequency = numberInRange(input.frequency, "frequency", 1, 60);
     const rawScore = numberInRange(input.rawScore, "rawScore", 0, 1);
     const margin = numberInRange(input.margin, "margin", 0, 1);
     const stableCount = integerInRange(input.stableCount, "stableCount", 1, 20);
+    const scores = optionalNumberList(input.scores, "scores", 0, 1, 1, 8) ?? [];
+    const windowSeconds = optionalNumber(input.windowSeconds, "windowSeconds", 0.2, 20);
+    const stepSeconds = optionalNumber(input.stepSeconds, "stepSeconds", 0.05, 10);
+    const harmonics = optionalInteger(input.harmonics, "harmonics", 1, 8);
+    const minScore = optionalNumber(input.minScore, "minScore", 0, 1);
+    const minMargin = optionalNumber(input.minMargin, "minMargin", 0, 1);
+    const stableRequired = optionalInteger(input.stableRequired, "stableRequired", 1, 20);
 
     const event: BciSelectionEvent = {
       id: this.nextId++,
@@ -83,13 +104,20 @@ class BciInputStore {
       rawScore: round(rawScore, 4),
       margin: round(margin, 4),
       stableCount,
+      scores: scores.map((value) => round(value, 4)),
+      windowSeconds: windowSeconds === undefined ? undefined : round(windowSeconds, 3),
+      stepSeconds: stepSeconds === undefined ? undefined : round(stepSeconds, 3),
+      harmonics,
+      minScore: minScore === undefined ? undefined : round(minScore, 4),
+      minMargin: minMargin === undefined ? undefined : round(minMargin, 4),
+      stableRequired,
       receivedAt: new Date().toISOString(),
     };
 
     this.status.lastFrequency = event.frequency;
     this.status.lastConfidence = event.confidence;
     this.events = [...this.events, event].slice(-MAX_EVENTS);
-    return { ...event };
+    return cloneSelectionEvent(event);
   }
 
   snapshot(after = 0): {
@@ -112,7 +140,7 @@ class BciInputStore {
       },
       events: this.events
         .filter((event) => event.id > after)
-        .map((event) => ({ ...event })),
+        .map(cloneSelectionEvent),
     };
   }
 
@@ -135,7 +163,7 @@ class BciInputStore {
       ["searching", "streaming", "idle", "target"] as const,
     );
     const channels = optionalNumberList(input.channels, "channels", 1, 16, 1, 8, true);
-    const frequencies = optionalNumberList(input.frequencies, "frequencies", 1, 60, 1, 4);
+    const frequencies = optionalNumberList(input.frequencies, "frequencies", 1, 60, 1, 5);
     const sampleRate = optionalNumber(input.sampleRate, "sampleRate", 1, 2_000);
     const lastFrequency = optionalNumber(input.lastFrequency, "lastFrequency", 1, 60);
     const lastConfidence = optionalNumber(input.lastConfidence, "lastConfidence", 0, 1);
@@ -186,6 +214,16 @@ function optionalNumber(
   return numberInRange(value, field, minimum, maximum);
 }
 
+function optionalInteger(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+) {
+  if (value === undefined || value === null) return undefined;
+  return integerInRange(value, field, minimum, maximum);
+}
+
 function optionalNumberList(
   value: unknown,
   field: string,
@@ -230,6 +268,10 @@ function integerInRange(
 
 function round(value: number, digits: number) {
   return Number(value.toFixed(digits));
+}
+
+function cloneSelectionEvent(event: BciSelectionEvent): BciSelectionEvent {
+  return { ...event, scores: [...event.scores] };
 }
 
 const globalBciStore = globalThis as typeof globalThis & {

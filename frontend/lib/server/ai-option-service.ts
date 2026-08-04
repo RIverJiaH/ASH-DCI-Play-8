@@ -132,16 +132,27 @@ function clinicalContextFor(
   if (parentIntentCode === "category.basic_care") {
     return [
       patient.communication,
+      patient.motorFunctionLabel,
       patient.swallowingRiskLabel,
       patient.oralIntakeLabel,
       patient.positionRestrictionLabel,
     ];
   }
+  if (parentIntentCode === "care.pain") {
+    return [
+      patient.communication,
+      patient.scenarioLabel,
+      ...patient.diagnoses.slice(0, 2),
+      patient.motorFunctionLabel,
+      patient.swallowingRiskLabel,
+      patient.positionRestrictionLabel,
+    ];
+  }
   if (parentIntentCode.startsWith("care.hydration")) {
-    return [patient.communication, patient.swallowingRiskLabel, patient.oralIntakeLabel];
+    return [patient.communication, patient.motorFunctionLabel, patient.swallowingRiskLabel, patient.oralIntakeLabel];
   }
   if (parentIntentCode.startsWith("care.position")) {
-    return [patient.communication, patient.positionRestrictionLabel];
+    return [patient.communication, patient.motorFunctionLabel, patient.positionRestrictionLabel];
   }
   return [patient.communication, patient.scenarioLabel];
 }
@@ -152,13 +163,25 @@ function decisionSummaryFor(
   patient: NonNullable<ReturnType<typeof demoPatientForBed>>,
 ): string {
   if (parentIntentCode === "category.basic_care" && patient.swallowingRisk === "high") {
-    return "检测到吞咽风险：饮水口腔需求直接转护理评估；疼痛需求继续追问。";
+    return "检测到吞咽风险：候选项已改为口腔湿润和吞咽安全评估，不提供直接饮水动作。";
+  }
+  if (parentIntentCode === "category.basic_care" && patient.motorFunction === "limb_disability") {
+    return "根据肢体失能病历：饮水/进食转为协助任务，体位需求转为肢体摆位协助，疼痛需求继续追问。";
   }
   if (
     parentIntentCode === "category.basic_care"
     && patient.positionRestriction === "postoperative_assessment"
   ) {
-    return "检测到术后体位限制：体位需求直接转护理评估；疼痛需求继续追问。";
+    return "检测到术后体位限制：体位与口腔相关请求先转护理评估，避免直接生成具体动作。";
+  }
+  if (parentIntentCode === "care.pain" && patient.swallowingRisk === "high") {
+    return "根据吞咽风险病历：疼痛追问已加入咽喉口腔不适，并保留胸痛等高优先级入口。";
+  }
+  if (parentIntentCode === "care.pain" && patient.motorFunction === "limb_disability") {
+    return "根据肢体失能病历：疼痛追问已改为患侧肢体不适、胸痛和肩手牵拉不适。";
+  }
+  if (parentIntentCode === "care.pain" && patient.positionRestriction === "postoperative_assessment") {
+    return "根据术后体位限制病历：疼痛追问已改为头部术区、胸痛和受压部位评估。";
   }
   const directCount = options.filter((option) => option.nextAction === "confirm_task").length;
   const clarifyCount = options.length - directCount;

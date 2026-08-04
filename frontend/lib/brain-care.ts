@@ -118,7 +118,7 @@ export const ROOT_OPTIONS: CareOption[] = [
     actionMode: "request_only",
     terminal: false,
     nextAction: "clarify",
-    nextActionReason: "需要先区分疼痛、饮水口腔或体位需求。",
+    nextActionReason: "需要先区分疼痛、饮水/进食或体位需求。",
   },
   {
     id: "root-environment",
@@ -190,7 +190,7 @@ export const DEFAULT_TASKS: CareTask[] = [
   {
     id: "task-b02",
     bed: "B02",
-    need: "患者提出饮水或口腔护理需求，存在吞咽风险，需护理人员评估",
+    need: "患者因肢体失能提出饮水或进食协助需求，需护理人员床旁协助并确认安全",
     source: "AI引导 · 脑控确认",
     priority: "medium",
     status: "accepted",
@@ -199,15 +199,15 @@ export const DEFAULT_TASKS: CareTask[] = [
       { label: "需求分类", value: "基本照护", confidence: 0.89 },
       {
         label: "照护类型",
-        value: "饮水口腔需评估",
+        value: "饮水/进食协助",
         confidence: 0.86,
         riskLevel: "attention",
-        riskNotice: "记录存在吞咽风险，不直接生成饮水动作。",
-        evidence: ["吞咽风险高", "饮水前需护理评估"],
-        safetyRule: "HYDRATION_REQUIRES_NURSE_ASSESSMENT",
+        riskNotice: "病历记录肢体失能，患者可能无法自行取杯、持勺或完成进食动作。",
+        evidence: ["右侧肢体失能，需协助摆位和取物", "可经护理协助饮水/进食"],
+        safetyRule: "LIMB_DISABILITY_REQUIRES_ASSISTED_FEEDING",
         aiSource: "deepseek",
         aiModel: "deepseek-v4-flash",
-        aiGuidance: "已根据吞咽风险，将饮水口腔需求调整为护理评估。",
+        aiGuidance: "已根据肢体失能状态，将饮水/进食调整为护理协助。",
       },
     ],
   },
@@ -239,7 +239,7 @@ export const DEFAULT_TASKS: CareTask[] = [
 
 export const DEFAULT_EVENTS: AuditEvent[] = [
   { id: "event-1", time: "14:29:42", title: "任务已创建", detail: "A01 · 腹部重度持续疼痛" },
-  { id: "event-2", time: "14:27:03", title: "护理人员已接单", detail: "B02 · 饮水口腔需评估" },
+  { id: "event-2", time: "14:27:03", title: "护理人员已接单", detail: "B02 · 饮水/进食协助" },
   { id: "event-3", time: "14:25:18", title: "任务已完成", detail: "C03 · 体位调整需评估" },
 ];
 

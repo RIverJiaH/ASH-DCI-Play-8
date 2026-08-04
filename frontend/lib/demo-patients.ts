@@ -1,6 +1,7 @@
 export type SwallowingRisk = "none_recorded" | "high" | "unknown";
 export type PositionRestriction = "none_recorded" | "postoperative_assessment" | "unknown";
 export type OralIntakeStatus = "routine_assessment" | "assessment_required" | "unknown";
+export type MotorFunctionStatus = "independent" | "limb_disability" | "postoperative_limited" | "unknown";
 
 export type DemoPatientProfile = {
   bed: string;
@@ -19,6 +20,8 @@ export type DemoPatientProfile = {
   swallowingRiskLabel: string;
   positionRestriction: PositionRestriction;
   positionRestrictionLabel: string;
+  motorFunction: MotorFunctionStatus;
+  motorFunctionLabel: string;
   careNotes: string[];
 };
 
@@ -40,26 +43,30 @@ export const DEMO_PATIENTS: DemoPatientProfile[] = [
     swallowingRiskLabel: "未记录明显吞咽风险",
     positionRestriction: "none_recorded",
     positionRestrictionLabel: "未记录特殊体位限制",
+    motorFunction: "independent",
+    motorFunctionLabel: "肢体活动按常规评估",
     careNotes: ["需求发送后由护理人员床旁核实", "紧急不适直接生成高优先级护理任务"],
   },
   {
     bed: "B02",
     patientCode: "演示患者 B",
     age: "68岁",
-    admissionSummary: "脑卒中后恢复观察，病历记录吞咽风险。",
-    diagnoses: ["脑卒中恢复期（模拟）", "吞咽功能异常风险（模拟）"],
+    admissionSummary: "脑卒中后恢复观察，病历记录肢体失能和偏瘫侧协助需求。",
+    diagnoses: ["脑卒中恢复期（模拟）", "右侧肢体失能（模拟）"],
     allergies: "未记录特殊过敏（模拟）",
-    scenarioLabel: "吞咽风险",
-    summary: "病历场景记录吞咽风险，饮水需求必须由护理人员床旁评估。",
+    scenarioLabel: "肢体失能",
+    summary: "病历场景记录右侧肢体失能，饮水/进食、体位和患侧不适需要护理人员协助确认。",
     communication: "无法稳定言语表达",
-    communicationSupport: "可完成简单需求选择，饮水相关需求需风险拦截",
-    oralIntake: "assessment_required",
-    oralIntakeLabel: "饮水前需护理评估",
-    swallowingRisk: "high",
-    swallowingRiskLabel: "吞咽风险高",
+    communicationSupport: "可完成简单需求选择，肢体相关需求需转护理协助",
+    oralIntake: "routine_assessment",
+    oralIntakeLabel: "可经护理协助饮水/进食",
+    swallowingRisk: "none_recorded",
+    swallowingRiskLabel: "未记录明显吞咽风险",
     positionRestriction: "none_recorded",
     positionRestrictionLabel: "未记录特殊体位限制",
-    careNotes: ["饮水、漱口等入口需求先由护理人员评估", "系统不得直接生成饮水执行动作"],
+    motorFunction: "limb_disability",
+    motorFunctionLabel: "右侧肢体失能，需协助摆位和取物",
+    careNotes: ["饮水/进食需护理人员协助取物和递送", "体位、肢体摆放和患侧不适需床旁确认"],
   },
   {
     bed: "C03",
@@ -78,6 +85,8 @@ export const DEMO_PATIENTS: DemoPatientProfile[] = [
     swallowingRiskLabel: "吞咽状态待护理确认",
     positionRestriction: "postoperative_assessment",
     positionRestrictionLabel: "术后体位调整前需评估",
+    motorFunction: "postoperative_limited",
+    motorFunctionLabel: "术后活动范围待护理评估",
     careNotes: ["不直接生成左侧卧、右侧卧等具体动作", "体位需求统一转护理人员床旁评估"],
   },
 ];

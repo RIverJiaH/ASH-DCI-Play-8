@@ -93,7 +93,7 @@ test("server-renders the Brain Care demo", async () => {
   assert.match(html, /护理端/);
   assert.match(html, /模拟脑控信号/);
   assert.match(html, /模拟病历场景/);
-  assert.match(html, /吞咽风险/);
+  assert.match(html, /肢体状态/);
   assert.match(html, /查看完整模拟病历/);
   assert.doesNotMatch(html, /Your site is taking shape|Starter Project|codex-preview/);
 });
@@ -111,6 +111,7 @@ test("keeps safety thresholds and task workflow in source", async () => {
   assert.match(page, /Math\.min/);
   assert.match(page, /\/api\/brain-control\/evaluate/);
   assert.match(page, /\/api\/tasks/);
+  assert.match(page, /OpenBCI 识别日志/);
   assert.doesNotMatch(page, /localStorage/);
   assert.match(page, /pending.*accepted.*done/s);
   assert.match(layout, /脑护通/);
@@ -213,8 +214,19 @@ test("queues local OpenBCI events without bypassing the selection API", async ()
     rawScore: 0.88,
     margin: 0.09,
     stableCount: 3,
+    scores: [0.22, 0.88, 0.41, 0.35],
+    windowSeconds: 2.5,
+    stepSeconds: 0.5,
+    harmonics: 3,
+    minScore: 0.55,
+    minMargin: 0.04,
+    stableRequired: 3,
   });
   assert.equal(selection.status, 201);
+  const selectionBody = await selection.json();
+  assert.deepEqual(selectionBody.event.scores, [0.22, 0.88, 0.41, 0.35]);
+  assert.equal(selectionBody.event.windowSeconds, 2.5);
+  assert.equal(selectionBody.event.harmonics, 3);
 
   const poll = await request("/api/bci/events?after=0");
   assert.equal(poll.status, 200);
@@ -223,6 +235,8 @@ test("queues local OpenBCI events without bypassing the selection API", async ()
   assert.equal(pollBody.events.length, 1);
   assert.equal(pollBody.events[0].targetIndex, 1);
   assert.equal(pollBody.events[0].confidence, 0.88);
+  assert.deepEqual(pollBody.events[0].scores, [0.22, 0.88, 0.41, 0.35]);
+  assert.equal(pollBody.events[0].stableRequired, 3);
 
   const forwarded = await request("/api/bci/events", {
     method: "POST",
@@ -316,39 +330,43 @@ test("creates hydration request after two confirmed selections", async () => {
   });
   assert.equal(created.status, 201);
   const body = await created.json();
-  assert.equal(body.task.need, "患者需要饮水或口腔护理");
+  assert.equal(body.task.need, "患者需要饮水或进食");
   assert.equal(body.task.steps.length, 2);
 });
 
 test("applies simulated clinical context before AI option generation", async () => {
   await jsonRequest("/api/demo/reset", "POST", {});
-  const swallowingSession = `session-test-swallowing-${Date.now()}`;
+  const limbSession = `session-test-limb-${Date.now()}`;
   const root = { optionId: "root-basic-care" };
-  const swallowingResponse = await jsonRequest("/api/options/generate", "POST", {
-    sessionId: swallowingSession,
+  const limbResponse = await jsonRequest("/api/options/generate", "POST", {
+    sessionId: limbSession,
     bed: "B02",
     stage: 1,
     selections: [root],
   });
-  assert.equal(swallowingResponse.status, 201);
-  const swallowingSet = await swallowingResponse.json();
-  assert.equal(swallowingSet.bed, "B02");
-  const hydration = swallowingSet.options.find((option) => option.id === "care-hydration-assessment");
+  assert.equal(limbResponse.status, 201);
+  const limbSet = await limbResponse.json();
+  assert.equal(limbSet.bed, "B02");
+  const hydration = limbSet.options.find((option) => option.id === "care-feeding-assist");
   assert.ok(hydration);
-  assert.equal(hydration.safetyRule, "HYDRATION_REQUIRES_NURSE_ASSESSMENT");
+  assert.equal(hydration.safetyRule, "LIMB_DISABILITY_REQUIRES_ASSISTED_FEEDING");
   assert.equal(hydration.riskLevel, "attention");
   assert.equal(hydration.nextAction, "confirm_task");
-  assert.match(hydration.nextActionReason, /不再追问饮水动作/);
-  assert.ok(hydration.evidence.includes("吞咽风险高"));
-  assert.match(swallowingSet.decisionSummary, /吞咽风险/);
-  assert.ok(swallowingSet.clinicalContextUsed.includes("吞咽风险高"));
+  assert.match(hydration.nextActionReason, /肢体失能/);
+  assert.ok(hydration.evidence.includes("右侧肢体失能，需协助摆位和取物"));
+  const limbPositioning = limbSet.options.find((option) => option.id === "care-limb-positioning");
+  assert.ok(limbPositioning);
+  assert.equal(limbPositioning.safetyRule, "LIMB_POSITION_REQUIRES_NURSE_ASSISTANCE");
+  assert.equal(limbPositioning.label, "肢体摆位协助");
+  assert.match(limbSet.decisionSummary, /肢体失能/);
+  assert.ok(limbSet.clinicalContextUsed.includes("右侧肢体失能，需协助摆位和取物"));
 
   const crossBed = await jsonRequest("/api/brain-control/evaluate", "POST", {
-    sessionId: swallowingSession,
+    sessionId: limbSession,
     bed: "A01",
     stage: 1,
     optionId: hydration.id,
-    optionSetId: swallowingSet.id,
+    optionSetId: limbSet.id,
     confidence: 0.9,
     selections: [root],
   });
@@ -356,17 +374,17 @@ test("applies simulated clinical context before AI option generation", async () 
   assert.equal((await crossBed.json()).error.code, "OPTION_SET_MISMATCH");
 
   const created = await jsonRequest("/api/tasks", "POST", {
-    sessionId: swallowingSession,
+    sessionId: limbSession,
     bed: "B02",
     steps: [
       { ...root, confidence: 0.91 },
-      { optionId: hydration.id, optionSetId: swallowingSet.id, confidence: 0.88 },
+      { optionId: hydration.id, optionSetId: limbSet.id, confidence: 0.88 },
     ],
   });
   assert.equal(created.status, 201);
   const createdTask = (await created.json()).task;
   assert.equal(createdTask.priority, "medium");
-  assert.equal(createdTask.steps[1].safetyRule, "HYDRATION_REQUIRES_NURSE_ASSESSMENT");
+  assert.equal(createdTask.steps[1].safetyRule, "LIMB_DISABILITY_REQUIRES_ASSISTED_FEEDING");
   assert.ok(createdTask.steps[1].riskNotice);
 
   const positionSession = `session-test-position-${Date.now()}`;
@@ -381,7 +399,25 @@ test("applies simulated clinical context before AI option generation", async () 
   const position = positionSet.options.find((option) => option.id === "care-position-assessment");
   assert.ok(position);
   assert.equal(position.safetyRule, "POSITION_REQUIRES_NURSE_ASSESSMENT");
+  const oralCheck = positionSet.options.find((option) => option.id === "care-oral-intake-check");
+  assert.ok(oralCheck);
+  assert.equal(oralCheck.safetyRule, "ORAL_INTAKE_REQUIRES_NURSE_CONFIRMATION");
   assert.ok(positionSet.clinicalContextUsed.includes("术后体位调整前需评估"));
+
+  const pain = positionSet.options.find((option) => option.id === "care-pain");
+  assert.ok(pain);
+  const painResponse = await jsonRequest("/api/options/generate", "POST", {
+    sessionId: positionSession,
+    bed: "C03",
+    stage: 2,
+    selections: [root, { optionId: pain.id, optionSetId: positionSet.id }],
+  });
+  assert.equal(painResponse.status, 201);
+  const painSet = await painResponse.json();
+  assert.ok(painSet.options.find((option) => option.id === "pain-head-wound"));
+  assert.ok(painSet.options.find((option) => option.id === "pain-pressure"));
+  assert.match(painSet.decisionSummary, /术后体位限制/);
+  assert.ok(painSet.clinicalContextUsed.includes("术后体位限制"));
 });
 
 test("records an unable-to-complete nursing outcome", async () => {

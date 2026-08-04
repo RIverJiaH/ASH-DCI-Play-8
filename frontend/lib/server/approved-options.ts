@@ -34,7 +34,7 @@ const APPROVED_GROUPS: Record<string, ApprovedOptionGroup> = {
     stepLabel: "照护类型",
     options: [
       option("care-pain", "care.pain", "疼痛不适", "患者报告疼痛不适", "attention"),
-      option("care-hydration", "care.hydration", "饮水口腔", "患者需要饮水或口腔护理", "normal", true),
+      option("care-hydration", "care.hydration", "饮水/进食", "患者需要饮水或进食", "normal", true),
       option("care-position", "care.position", "调整体位", "患者需要协助调整体位", "normal", true),
     ],
   },
@@ -157,14 +157,88 @@ export function approvedOptionsFor(
         ...options[hydrationIndex],
         id: "care-hydration-assessment",
         intentCode: "care.hydration.assessment",
-        label: "饮水口腔需评估",
-        taskText: "患者提出饮水或口腔护理需求，存在吞咽风险，需护理人员评估",
+        label: "口腔湿润评估",
+        taskText: "患者提出口干或饮水相关需求，存在吞咽风险，需护理人员评估口腔湿润方案",
         riskLevel: "attention",
         riskNotice: "记录存在吞咽风险，不直接生成饮水动作。",
         evidence: [patient.swallowingRiskLabel, patient.oralIntakeLabel],
         safetyRule: "HYDRATION_REQUIRES_NURSE_ASSESSMENT",
         nextAction: "confirm_task",
         nextActionReason: "模拟病历已记录吞咽风险，不再追问饮水动作，直接生成护理评估任务。",
+      };
+    }
+    const positionIndex = options.findIndex((item) => item.id === "care-position");
+    if (positionIndex >= 0) {
+      options[positionIndex] = {
+        ...options[positionIndex],
+        id: "care-swallowing-assessment",
+        intentCode: "care.swallowing.assessment",
+        label: "吞咽安全评估",
+        taskText: "患者表达吞咽或口腔相关不适，因病历记录吞咽风险高，需护理人员先做吞咽安全评估",
+        riskLevel: "attention",
+        riskNotice: "病历记录吞咽风险高，相关入口统一转为护理评估。",
+        evidence: [patient.swallowingRiskLabel, patient.oralIntakeLabel],
+        safetyRule: "SWALLOWING_REQUIRES_NURSE_ASSESSMENT",
+        terminal: true,
+        nextAction: "confirm_task",
+        nextActionReason: "模拟病历提示吞咽风险，本轮提供吞咽安全评估选项，不生成直接饮水或进食动作。",
+      };
+    }
+  }
+
+  if (parentIntentCode === "category.basic_care" && patient?.motorFunction === "limb_disability") {
+    const hydrationIndex = options.findIndex((item) => item.id === "care-hydration");
+    if (hydrationIndex >= 0) {
+      options[hydrationIndex] = {
+        ...options[hydrationIndex],
+        id: "care-feeding-assist",
+        intentCode: "care.feeding.assist",
+        label: "饮水/进食协助",
+        taskText: "患者因肢体失能提出饮水或进食协助需求，需护理人员床旁协助并确认安全",
+        riskLevel: "attention",
+        riskNotice: "病历记录肢体失能，患者可能无法自行取杯、持勺或完成进食动作。",
+        evidence: [patient.motorFunctionLabel, patient.oralIntakeLabel],
+        safetyRule: "LIMB_DISABILITY_REQUIRES_ASSISTED_FEEDING",
+        terminal: true,
+        nextAction: "confirm_task",
+        nextActionReason: "模拟病历提示肢体失能，饮水/进食不再作为普通自理需求，直接生成护理协助任务。",
+      };
+    }
+    const positionIndex = options.findIndex((item) => item.id === "care-position");
+    if (positionIndex >= 0) {
+      options[positionIndex] = {
+        ...options[positionIndex],
+        id: "care-limb-positioning",
+        intentCode: "care.position.limb_support",
+        label: "肢体摆位协助",
+        taskText: "患者因肢体失能提出体位或肢体摆放协助需求，需护理人员床旁确认",
+        riskLevel: "attention",
+        riskNotice: "病历记录右侧肢体失能，体位和患侧肢体摆放需人工协助确认。",
+        evidence: [patient.motorFunctionLabel, patient.communicationSupport],
+        safetyRule: "LIMB_POSITION_REQUIRES_NURSE_ASSISTANCE",
+        terminal: true,
+        nextAction: "confirm_task",
+        nextActionReason: "模拟病历提示肢体失能，体位需求直接转为肢体摆位协助任务。",
+      };
+    }
+  }
+
+  if (parentIntentCode === "category.basic_care" && patient?.oralIntake === "unknown") {
+    const hydrationIndex = options.findIndex((item) => item.id === "care-hydration");
+    if (hydrationIndex >= 0) {
+      options[hydrationIndex] = {
+        ...options[hydrationIndex],
+        id: "care-oral-intake-check",
+        intentCode: "care.oral_intake.assessment",
+        label: "口腔状态确认",
+        taskText: "患者提出口腔或饮水相关需求，当前饮水状态待确认，需护理人员评估",
+        riskLevel: "attention",
+        riskNotice: "饮水状态未确认，不直接生成饮水动作。",
+        evidence: [patient.oralIntakeLabel, patient.swallowingRiskLabel],
+        safetyRule: "ORAL_INTAKE_REQUIRES_NURSE_CONFIRMATION",
+        terminal: true,
+        nextAction: "confirm_task",
+        nextActionReason: "模拟病历未确认饮水状态，口腔相关需求转为护理确认任务。",
       };
     }
   }
@@ -189,6 +263,96 @@ export function approvedOptionsFor(
         nextActionReason: "模拟病历已记录术后体位限制，不再追问具体卧位，直接生成护理评估任务。",
       };
     }
+  }
+
+  if (parentIntentCode === "care.pain" && patient?.swallowingRisk === "high") {
+    options[0] = {
+      ...options[0],
+      id: "pain-throat-mouth",
+      intentCode: "care.pain.throat_mouth",
+      label: "咽喉口腔不适",
+      taskText: "患者表达咽喉或口腔不适，存在吞咽风险，需护理人员评估",
+      riskLevel: "attention",
+      riskNotice: "吞咽风险场景下，咽喉口腔不适需先由护理人员评估。",
+      evidence: [patient.swallowingRiskLabel, patient.oralIntakeLabel],
+      safetyRule: "SWALLOWING_REQUIRES_NURSE_ASSESSMENT",
+      nextAction: "confirm_task",
+      nextActionReason: "模拟病历提示吞咽风险，咽喉口腔不适直接形成护理评估任务。",
+      terminal: true,
+    };
+    options[2] = {
+      ...options[2],
+      id: "pain-limb-abdominal",
+      intentCode: "care.pain.limb_abdominal",
+      label: "腹部或四肢痛",
+      taskText: "患者表达腹部或四肢疼痛，需护理人员床旁评估",
+      riskLevel: "attention",
+      nextAction: "confirm_task",
+      nextActionReason: "疼痛位置已明确，进入护理任务确认。",
+      terminal: true,
+    };
+  }
+
+  if (parentIntentCode === "care.pain" && patient?.motorFunction === "limb_disability") {
+    options[0] = {
+      ...options[0],
+      id: "pain-affected-limb",
+      intentCode: "care.pain.affected_limb",
+      label: "患侧肢体不适",
+      taskText: "患者表达患侧肢体疼痛、麻木或压迫不适，需护理人员床旁评估",
+      riskLevel: "attention",
+      riskNotice: "病历记录右侧肢体失能，患侧疼痛、麻木或压迫不适需结合摆位情况复核。",
+      evidence: [patient.motorFunctionLabel, patient.diagnoses[1]],
+      safetyRule: "LIMB_DISABILITY_PAIN_REQUIRES_NURSE_REVIEW",
+      terminal: true,
+      nextAction: "confirm_task",
+      nextActionReason: "模拟病历提示肢体失能，患侧肢体不适直接形成护理评估任务。",
+    };
+    options[2] = {
+      ...options[2],
+      id: "pain-shoulder-hand",
+      intentCode: "care.pain.shoulder_hand",
+      label: "肩手牵拉不适",
+      taskText: "患者表达肩部、手部牵拉或摆放不适，需护理人员检查患侧肢体支撑",
+      riskLevel: "attention",
+      riskNotice: "肢体失能患者的肩手牵拉不适可能与摆位、支撑或护理操作相关，需人工确认。",
+      evidence: [patient.motorFunctionLabel, patient.communication],
+      safetyRule: "LIMB_SUPPORT_REQUIRES_BEDSIDE_CHECK",
+      terminal: true,
+      nextAction: "confirm_task",
+      nextActionReason: "疼痛位置已与肢体失能病历关联，进入护理任务确认。",
+    };
+  }
+
+  if (parentIntentCode === "care.pain" && patient?.positionRestriction === "postoperative_assessment") {
+    options[0] = {
+      ...options[0],
+      id: "pain-head-wound",
+      intentCode: "care.pain.head_wound",
+      label: "头部术区疼痛",
+      taskText: "患者表达头部或术区疼痛，需护理人员结合术后情况评估",
+      riskLevel: "urgent",
+      riskNotice: "术后场景下头部或术区疼痛需提高复核优先级。",
+      evidence: [patient.positionRestrictionLabel, patient.diagnoses[0]],
+      safetyRule: "POSTOP_PAIN_REQUIRES_NURSE_ASSESSMENT",
+      nextAction: "confirm_task",
+      nextActionReason: "模拟病历提示术后观察场景，头部或术区疼痛直接形成护理复核任务。",
+      terminal: true,
+    };
+    options[2] = {
+      ...options[2],
+      id: "pain-pressure",
+      intentCode: "care.pain.pressure",
+      label: "受压部位疼痛",
+      taskText: "患者表达受压部位疼痛或卧位不适，需护理人员评估体位与皮肤受压情况",
+      riskLevel: "attention",
+      riskNotice: "术后体位受限场景下，受压疼痛需结合体位限制评估。",
+      evidence: [patient.positionRestrictionLabel, patient.communication],
+      safetyRule: "POSITION_REQUIRES_NURSE_ASSESSMENT",
+      nextAction: "confirm_task",
+      nextActionReason: "模拟病历提示体位限制，受压疼痛直接形成护理评估任务。",
+      terminal: true,
+    };
   }
 
   return {

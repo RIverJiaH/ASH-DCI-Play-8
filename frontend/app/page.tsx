@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_EVENTS,
   DEFAULT_TASKS,
@@ -23,7 +23,9 @@ type InputMode = "simulation" | "openbci";
 
 const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
 
-const FREQUENCY_LABELS = ["目标 F1", "目标 F2", "目标 F3", "目标 F4"];
+const SSVEP_OPTION_TARGET_COUNT = 4;
+const BACK_TARGET_INDEX = 4;
+const DEFAULT_SSVEP_FREQUENCIES = [6, 8.57, 13.85, 15, 10] as const;
 const EMPTY_OPTIONS: CareOption[] = [];
 
 function createSessionId() {
@@ -167,6 +169,13 @@ type BciSelectionEvent = {
   rawScore: number;
   margin: number;
   stableCount: number;
+  scores: number[];
+  windowSeconds?: number;
+  stepSeconds?: number;
+  harmonics?: number;
+  minScore?: number;
+  minMargin?: number;
+  stableRequired?: number;
   receivedAt: string;
 };
 
@@ -175,6 +184,28 @@ type BciPollResponse = {
   status: BciBridgeStatus;
   events: BciSelectionEvent[];
 };
+
+function targetFrequency(status: BciBridgeStatus, targetIndex: number) {
+  return status.frequencies[targetIndex] ?? DEFAULT_SSVEP_FREQUENCIES[targetIndex] ?? DEFAULT_SSVEP_FREQUENCIES[0];
+}
+
+function formatTargetLabel(status: BciBridgeStatus, targetIndex: number) {
+  return `F${targetIndex + 1} · ${targetFrequency(status, targetIndex)} Hz`;
+}
+
+function formatBciEventDetail(event: BciSelectionEvent) {
+  const stable = event.stableRequired
+    ? `${event.stableCount}/${event.stableRequired}`
+    : `${event.stableCount}`;
+  const scores = event.scores.length
+    ? ` · scores ${event.scores.map((score) => score.toFixed(2)).join("/")}`
+    : "";
+  return [
+    `score ${event.rawScore.toFixed(2)}`,
+    `margin ${event.margin.toFixed(2)}`,
+    `stable ${stable}${scores}`,
+  ].join(" · ");
+}
 
 const OFFLINE_BCI_STATUS: BciBridgeStatus = {
   connected: false,
@@ -205,6 +236,7 @@ export default function Home() {
   const [inputMode, setInputMode] = useState<InputMode>("simulation");
   const [bciStatus, setBciStatus] = useState<BciBridgeStatus>(OFFLINE_BCI_STATUS);
   const [lastBciEvent, setLastBciEvent] = useState<BciSelectionEvent | null>(null);
+  const [bciEvents, setBciEvents] = useState<BciSelectionEvent[]>([]);
   const bciCursorRef = useRef(0);
   const bciPollingRef = useRef(false);
 
@@ -213,6 +245,11 @@ export default function Home() {
   const isEmergency = selections[0]?.option.intentCode === "category.emergency";
   const isComplete = selections.at(-1)?.option.terminal === true || stage === 3;
   const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? EMPTY_OPTIONS;
+  const selectableOptions = useMemo(
+    () => options.slice(0, SSVEP_OPTION_TARGET_COUNT),
+    [options],
+  );
+  const canGoBack = stage > 0;
   const totalSteps = isComplete ? stage : 3;
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0];
   const selectedTaskPatient = selectedTask
@@ -241,13 +278,15 @@ export default function Home() {
           : "安全兜底 · 选项已冻结";
   const visibleDecisionSummary = currentOptionSet?.decisionSummary
     || (selectedPatient.swallowingRisk === "high" && selections[0]?.option.intentCode === "category.basic_care"
-      ? "检测到吞咽风险：饮水口腔需求直接转护理评估；疼痛需求继续追问。"
-      : selectedPatient.positionRestriction === "postoperative_assessment" && selections[0]?.option.intentCode === "category.basic_care"
-        ? "检测到术后体位限制：体位需求直接转护理评估；疼痛需求继续追问。"
-        : currentOptionSet?.guidance || "已按审核白名单生成本层引导选项。");
+      ? "检测到吞咽风险：饮水/进食需求直接转护理评估；疼痛需求继续追问。"
+      : selectedPatient.motorFunction === "limb_disability" && selections[0]?.option.intentCode === "category.basic_care"
+        ? "根据肢体失能病历：进食和体位需求转护理协助；疼痛需求继续追问。"
+        : selectedPatient.positionRestriction === "postoperative_assessment" && selections[0]?.option.intentCode === "category.basic_care"
+          ? "检测到术后体位限制：体位需求直接转护理评估；疼痛需求继续追问。"
+          : currentOptionSet?.guidance || "已按审核白名单生成本层引导选项。");
   const visibleClinicalContext = currentOptionSet?.clinicalContextUsed?.length
     ? currentOptionSet.clinicalContextUsed
-    : [selectedPatient.communication, selectedPatient.swallowingRiskLabel, selectedPatient.positionRestrictionLabel];
+    : [selectedPatient.communication, selectedPatient.motorFunctionLabel, selectedPatient.oralIntakeLabel, selectedPatient.positionRestrictionLabel];
 
   useEffect(() => {
     let cancelled = false;
@@ -378,6 +417,7 @@ export default function Home() {
   const selectBciOption = useEffectEvent(selectOption);
 
   function goBackOneLevel() {
+    if (!canGoBack) return;
     setSelections((current) => current.slice(0, -1));
     setCurrentOptionSet(null);
     setOptionState("idle");
@@ -385,6 +425,7 @@ export default function Home() {
     setNotice("已返回上一级");
     setSimConfidence(CONFIDENCE_BY_STEP[Math.max(0, stage - 1)]);
   }
+  const goBackBciTarget = useEffectEvent(goBackOneLevel);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -393,7 +434,11 @@ export default function Home() {
       if (inputMode !== "simulation") return;
       if (activeView !== "patient" || isComplete || submitted || pendingCandidate || isBusy) return;
       const index = Number(event.key) - 1;
-      if (index >= 0 && index < options.length) void selectOption(options[index]);
+      if (index === BACK_TARGET_INDEX && canGoBack) {
+        goBackOneLevel();
+        return;
+      }
+      if (index >= 0 && index < selectableOptions.length) void selectOption(selectableOptions[index]);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -414,6 +459,9 @@ export default function Home() {
         bciCursorRef.current = snapshot.cursor;
         setBciStatus(snapshot.status);
 
+        if (snapshot.events.length > 0) {
+          setBciEvents((current) => [...snapshot.events].reverse().concat(current).slice(0, 8));
+        }
         const event = snapshot.events.at(-1);
         if (!event) return;
         setLastBciEvent(event);
@@ -430,7 +478,16 @@ export default function Home() {
           return;
         }
 
-        const option = options[event.targetIndex];
+        if (event.targetIndex === BACK_TARGET_INDEX) {
+          if (!canGoBack) {
+            setNotice("F5 当前没有上一级可返回，本次输入已忽略");
+            return;
+          }
+          goBackBciTarget();
+          return;
+        }
+
+        const option = selectableOptions[event.targetIndex];
         if (!option) {
           setNotice(`F${event.targetIndex + 1} 当前没有对应候选项，本次输入已忽略`);
           return;
@@ -438,10 +495,14 @@ export default function Home() {
 
         if (pendingCandidate) {
           if (pendingCandidate.option.id !== option.id) {
-            const expectedIndex = options.findIndex(
+            const expectedIndex = selectableOptions.findIndex(
               (item) => item.id === pendingCandidate.option.id,
             );
-            setNotice(`请再次注视 F${expectedIndex + 1} 完成确认`);
+            setNotice(
+              expectedIndex >= 0
+                ? `请再次注视 F${expectedIndex + 1} 完成确认`
+                : "请再次注视原候选项完成确认",
+            );
             return;
           }
           await selectBciOption(pendingCandidate.option, true, event.confidence);
@@ -467,12 +528,13 @@ export default function Home() {
     };
   }, [
     activeView,
+    canGoBack,
     inputMode,
     isBusy,
     isComplete,
     optionState,
-    options,
     pendingCandidate,
+    selectableOptions,
     submitted,
   ]);
 
@@ -488,7 +550,8 @@ export default function Home() {
       const snapshot = await apiRequest<BciPollResponse>("/api/bci/events");
       bciCursorRef.current = snapshot.cursor;
       setBciStatus(snapshot.status);
-      setLastBciEvent(null);
+      setLastBciEvent(snapshot.events.at(-1) ?? null);
+      setBciEvents([...snapshot.events].reverse().slice(0, 8));
       setInputMode("openbci");
       setNotice(snapshot.status.connected ? "OpenBCI 已连接，等待稳定目标" : "等待 OpenBCI 桥接器连接");
     } catch (error) {
@@ -656,12 +719,6 @@ export default function Home() {
               <>
                 <div className="option-source-row">
                   <span role="status">{optionSourceLabel}</span>
-                  {stage > 0 && (
-                    <button type="button" className="back-level-button" onClick={goBackOneLevel}>
-                      <span aria-hidden="true">←</span>
-                      返回上一级
-                    </button>
-                  )}
                   {stage > 0 && <small>仅从审核白名单生成，不执行设备操作</small>}
                 </div>
 
@@ -690,40 +747,61 @@ export default function Home() {
                 {(optionState === "idle" || optionState === "generating") && stage > 0 ? (
                   <div className="option-loading" role="status">正在生成受控引导选项…</div>
                 ) : (
-                  <div className={`option-grid${stage > 0 ? " three-options" : ""}`} role="group" aria-label="脑控候选项">
-                    {options.map((option, index) => (
+                  <div className={`option-grid${canGoBack ? " with-back-target" : ""}`} role="group" aria-label="脑控候选项">
+                    {selectableOptions.map((option, index) => {
+                      const frequency = targetFrequency(bciStatus, index);
+                      return (
+                        <button
+                          type="button"
+                          className="ssvep-option"
+                          key={option.id}
+                          disabled={isBusy || !sessionId}
+                          onClick={() => void selectOption(option)}
+                        >
+                          <span className="option-target-row">
+                            <span className="target-label">{formatTargetLabel(bciStatus, index)}</span>
+                            <span className="option-markers">
+                              {option.evidence?.length ? <span className="clinical-option-marker">病历</span> : null}
+                              {option.safetyRule && <span className="safety-option-marker">需评估</span>}
+                              {(currentOptionSet?.source === "deepseek" || currentOptionSet?.source === "mock_ai") && <span className="ai-option-marker">AI</span>}
+                            </span>
+                          </span>
+                          <span
+                            className="ssvep-flicker"
+                            style={{ animationDuration: `${1 / frequency}s` }}
+                            aria-hidden="true"
+                          />
+                          <strong>{option.label}</strong>
+                          <span className={`option-route ${option.nextAction}`}>
+                            {option.nextAction === "clarify" ? "选择后继续确认" : "选择后确认建单"}
+                          </span>
+                          <span className="key-label">{index + 1}</span>
+                        </button>
+                      );
+                    })}
+                    {canGoBack && (
                       <button
                         type="button"
-                        className="ssvep-option"
-                        key={option.id}
-                        disabled={isBusy || !sessionId}
-                        onClick={() => void selectOption(option)}
-                      >
-                        <span className="option-target-row">
-                          <span className="target-label">
-                            {inputMode === "openbci" && bciStatus.frequencies[index]
-                              ? `F${index + 1} · ${bciStatus.frequencies[index]} Hz`
-                              : FREQUENCY_LABELS[index]}
+                        className="ssvep-option ssvep-back-option"
+                        disabled={isBusy}
+                        onClick={goBackOneLevel}
+                        >
+                          <span className="option-target-row">
+                            <span className="target-label">{formatTargetLabel(bciStatus, BACK_TARGET_INDEX)}</span>
+                            <span className="option-markers">
+                              <span className="navigation-option-marker">返回</span>
+                            </span>
                           </span>
-                          {inputMode === "openbci" && bciStatus.frequencies[index] && (
-                            <span
-                              className="ssvep-flicker"
-                              style={{ animationDuration: `${1 / bciStatus.frequencies[index]}s` }}
-                              aria-hidden="true"
-                            />
-                          )}
-                          <span className="option-markers">
-                            {option.safetyRule && <span className="safety-option-marker">需评估</span>}
-                            {currentOptionSet?.source === "deepseek" && <span className="ai-option-marker">AI</span>}
-                          </span>
-                        </span>
-                        <strong>{option.label}</strong>
-                        <span className={`option-route ${option.nextAction}`}>
-                          {option.nextAction === "clarify" ? "选择后继续确认" : "选择后确认建单"}
-                        </span>
-                        <span className="key-label">{index + 1}</span>
+                          <span
+                            className="ssvep-flicker"
+                            style={{ animationDuration: `${1 / targetFrequency(bciStatus, BACK_TARGET_INDEX)}s` }}
+                            aria-hidden="true"
+                          />
+                        <strong>返回上一级</strong>
+                        <span className="option-route back_target">回到上一层菜单</span>
+                        <span className="key-label">{BACK_TARGET_INDEX + 1}</span>
                       </button>
-                    ))}
+                    )}
                   </div>
                 )}
 
@@ -860,7 +938,8 @@ export default function Home() {
               </label>
               <p>{selectedPatient.summary}</p>
               <div className="demo-context-facts">
-                <span>吞咽风险<strong>{selectedPatient.swallowingRiskLabel}</strong></span>
+                <span>肢体状态<strong>{selectedPatient.motorFunctionLabel}</strong></span>
+                <span>进食状态<strong>{selectedPatient.oralIntakeLabel}</strong></span>
                 <span>体位限制<strong>{selectedPatient.positionRestrictionLabel}</strong></span>
               </div>
               <button
@@ -907,13 +986,34 @@ export default function Home() {
                   <span>最近识别</span>
                   <strong>
                     {lastBciEvent
-                      ? `F${lastBciEvent.targetIndex + 1} · ${lastBciEvent.frequency} Hz · ${lastBciEvent.confidence.toFixed(2)}`
+                      ? `F${lastBciEvent.targetIndex + 1} · ${lastBciEvent.frequency} Hz · ${formatBciEventDetail(lastBciEvent)}`
                       : "尚无稳定目标"}
                   </strong>
                 </>
               )}
               <span>当前状态</span><strong>{notice}</strong>
             </div>
+
+            {inputMode === "openbci" && (
+              <section className="event-preview bci-recognition-log" aria-labelledby="bci-events-title">
+                <h3 id="bci-events-title">OpenBCI 识别日志</h3>
+                {bciEvents.length === 0 && (
+                  <div className="event-row">
+                    <time>--:--</time>
+                    <p><strong>暂无识别记录</strong><span>等待 OpenBCI 稳定目标</span></p>
+                  </div>
+                )}
+                {bciEvents.slice(0, 4).map((event) => (
+                  <div className="event-row" key={event.id}>
+                    <time>{new Date(event.receivedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
+                    <p>
+                      <strong>F{event.targetIndex + 1} · {event.frequency} Hz</strong>
+                      <span>{formatBciEventDetail(event)}</span>
+                    </p>
+                  </div>
+                ))}
+              </section>
+            )}
 
             <section className="event-preview" aria-labelledby="patient-events-title">
               <h3 id="patient-events-title">最近事件</h3>
@@ -1149,6 +1249,7 @@ export default function Home() {
               <div><dt>过敏信息</dt><dd>{chartPatient.allergies}</dd></div>
               <div><dt>表达能力</dt><dd>{chartPatient.communication}</dd></div>
               <div><dt>沟通支持</dt><dd>{chartPatient.communicationSupport}</dd></div>
+              <div><dt>肢体功能</dt><dd>{chartPatient.motorFunctionLabel}</dd></div>
               <div><dt>吞咽风险</dt><dd>{chartPatient.swallowingRiskLabel}</dd></div>
               <div><dt>饮水状态</dt><dd>{chartPatient.oralIntakeLabel}</dd></div>
               <div><dt>体位限制</dt><dd>{chartPatient.positionRestrictionLabel}</dd></div>
