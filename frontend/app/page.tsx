@@ -25,6 +25,8 @@ const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
 
 const SSVEP_OPTION_TARGET_COUNT = 4;
 const BACK_TARGET_INDEX = 4;
+const FINAL_CONFIRM_TARGET_INDEX = 0;
+const FINAL_RESET_TARGET_INDEX = 1;
 const DEFAULT_SSVEP_FREQUENCIES = [6, 8.57, 13.85, 15, 10] as const;
 const EMPTY_OPTIONS: CareOption[] = [];
 
@@ -432,8 +434,13 @@ export default function Home() {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "BUTTON") return;
       if (inputMode !== "simulation") return;
-      if (activeView !== "patient" || isComplete || submitted || pendingCandidate || isBusy) return;
+      if (activeView !== "patient" || submitted || pendingCandidate || isBusy) return;
       const index = Number(event.key) - 1;
+      if (isComplete) {
+        if (index === FINAL_CONFIRM_TARGET_INDEX) void confirmRequest();
+        if (index === FINAL_RESET_TARGET_INDEX) resetPatientFlow();
+        return;
+      }
       if (index === BACK_TARGET_INDEX && canGoBack) {
         goBackOneLevel();
         return;
@@ -470,11 +477,25 @@ export default function Home() {
         if (
           activeView !== "patient"
           || submitted
-          || isComplete
           || isBusy
           || optionState === "generating"
         ) {
           setNotice(`已收到 F${event.targetIndex + 1}，当前页面暂不接受选择`);
+          return;
+        }
+
+        if (isComplete) {
+          if (event.targetIndex === FINAL_CONFIRM_TARGET_INDEX) {
+            setNotice("已收到 F1，确认发送需求");
+            await confirmBciRequest();
+            return;
+          }
+          if (event.targetIndex === FINAL_RESET_TARGET_INDEX) {
+            resetBciPatientFlow();
+            setNotice("已收到 F2，返回重新选择");
+            return;
+          }
+          setNotice("最终确认页仅接受 F1 确认发送或 F2 重新选择");
           return;
         }
 
@@ -593,6 +614,8 @@ export default function Home() {
     setNotice("等待脑控输入");
     setSubmitted(false);
   }
+  const confirmBciRequest = useEffectEvent(confirmRequest);
+  const resetBciPatientFlow = useEffectEvent(resetPatientFlow);
 
   function changeDemoPatient(nextBed: string) {
     setPatientBed(nextBed);
@@ -867,10 +890,48 @@ export default function Home() {
                   <p>整体置信度取已确认层级中的最低值，用于安全决策。</p>
                   <strong>{overallConfidence.toFixed(2)}</strong>
                 </div>
-                <div className="review-actions">
-                  <button type="button" className="button secondary" onClick={resetPatientFlow}>重新选择</button>
-                  <button type="button" className="button primary" disabled={isBusy} onClick={() => void confirmRequest()}>
-                    {isBusy ? "正在发送…" : "确认并发送需求"}
+                <div className="final-target-grid" role="group" aria-label="最终确认脑控目标">
+                  <button
+                    type="button"
+                    className="ssvep-option final-confirm-option"
+                    disabled={isBusy}
+                    onClick={() => void confirmRequest()}
+                  >
+                    <span className="option-target-row">
+                      <span className="target-label">{formatTargetLabel(bciStatus, FINAL_CONFIRM_TARGET_INDEX)}</span>
+                      <span className="option-markers">
+                        <span className="safety-option-marker">确认</span>
+                      </span>
+                    </span>
+                    <span
+                      className="ssvep-flicker"
+                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, FINAL_CONFIRM_TARGET_INDEX)}s` }}
+                      aria-hidden="true"
+                    />
+                    <strong>{isBusy ? "正在发送…" : "确认并发送需求"}</strong>
+                    <span className="option-route confirm_task">生成护理任务并进入护理端</span>
+                    <span className="key-label">{FINAL_CONFIRM_TARGET_INDEX + 1}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ssvep-option final-reset-option"
+                    disabled={isBusy}
+                    onClick={resetPatientFlow}
+                  >
+                    <span className="option-target-row">
+                      <span className="target-label">{formatTargetLabel(bciStatus, FINAL_RESET_TARGET_INDEX)}</span>
+                      <span className="option-markers">
+                        <span className="navigation-option-marker">重选</span>
+                      </span>
+                    </span>
+                    <span
+                      className="ssvep-flicker"
+                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, FINAL_RESET_TARGET_INDEX)}s` }}
+                      aria-hidden="true"
+                    />
+                    <strong>重新选择</strong>
+                    <span className="option-route back_target">回到第一层重新选择</span>
+                    <span className="key-label">{FINAL_RESET_TARGET_INDEX + 1}</span>
                   </button>
                 </div>
               </div>

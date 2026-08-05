@@ -112,6 +112,8 @@ test("keeps safety thresholds and task workflow in source", async () => {
   assert.match(page, /\/api\/brain-control\/evaluate/);
   assert.match(page, /\/api\/tasks/);
   assert.match(page, /OpenBCI 识别日志/);
+  assert.match(page, /最终确认脑控目标/);
+  assert.match(page, /FINAL_CONFIRM_TARGET_INDEX/);
   assert.doesNotMatch(page, /localStorage/);
   assert.match(page, /pending.*accepted.*done/s);
   assert.match(layout, /脑护通/);

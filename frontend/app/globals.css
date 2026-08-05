@@ -513,6 +513,31 @@ p {
   font-size: 22px;
 }
 
+.final-target-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.final-target-grid .ssvep-option {
+  min-height: 250px;
+}
+
+.final-confirm-option::before {
+  opacity: 0.45;
+}
+
+.final-reset-option::before {
+  background: var(--amber);
+  opacity: 0.42;
+}
+
+.final-reset-option:hover {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+}
+
 .option-route {
   max-width: calc(100% - 44px);
   display: inline-flex;
