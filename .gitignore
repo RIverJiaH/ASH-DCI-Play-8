@@ -8,6 +8,8 @@ venv/
 node_modules/
 dist/
 build/
+!frontend/build/
+!frontend/build/sites-vite-plugin.ts
 
 logs/*
 !logs/.gitkeep
