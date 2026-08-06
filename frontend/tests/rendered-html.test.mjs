@@ -111,7 +111,9 @@ test("keeps safety thresholds and task workflow in source", async () => {
   assert.match(page, /Math\.min/);
   assert.match(page, /\/api\/brain-control\/evaluate/);
   assert.match(page, /\/api\/tasks/);
-  assert.match(page, /OpenBCI 识别日志/);
+  assert.match(page, /bridgeLabel\(inputMode\)} 识别日志/);
+  assert.match(page, /DSTF前额/);
+  assert.match(page, /DSTF-Net研究模式/);
   assert.match(page, /最终确认脑控目标/);
   assert.match(page, /FINAL_CONFIRM_TARGET_INDEX/);
   assert.doesNotMatch(page, /localStorage/);
@@ -226,6 +228,8 @@ test("queues local OpenBCI events without bypassing the selection API", async ()
   });
   assert.equal(selection.status, 201);
   const selectionBody = await selection.json();
+  assert.equal(selectionBody.event.source, "openbci_ssvep");
+  assert.equal(selectionBody.event.streamName, "obci_eeg1");
   assert.deepEqual(selectionBody.event.scores, [0.22, 0.88, 0.41, 0.35]);
   assert.equal(selectionBody.event.windowSeconds, 2.5);
   assert.equal(selectionBody.event.harmonics, 3);
@@ -250,6 +254,57 @@ test("queues local OpenBCI events without bypassing the selection API", async ()
   });
   assert.equal(forwarded.status, 403);
   assert.equal((await forwarded.json()).error.code, "BCI_LOCAL_ONLY");
+});
+
+test("queues DSTF research events as BCI inputs without clinical validation claims", async () => {
+  await jsonRequest("/api/demo/reset", "POST", {});
+
+  const heartbeat = await jsonRequest("/api/bci/events", "POST", {
+    type: "heartbeat",
+    source: "frontal_dstf_research",
+    streamName: "dstf_net_mock",
+    state: "streaming",
+    channels: [1, 2, 3, 4, 5],
+    frequencies: [8, 9, 10],
+    sampleRate: 1000,
+    detail: "DSTF-Net inspired mock reconstruction; not clinical validation",
+  });
+  assert.equal(heartbeat.status, 200);
+  const heartbeatBody = await heartbeat.json();
+  assert.equal(heartbeatBody.status.source, "frontal_dstf_research");
+  assert.equal(heartbeatBody.status.connected, true);
+
+  const selection = await jsonRequest("/api/bci/events", "POST", {
+    type: "selection",
+    source: "frontal_dstf_research",
+    streamName: "dstf_net_mock",
+    state: "target",
+    channels: [1, 2, 3, 4, 5],
+    frequencies: [8, 9, 10],
+    sampleRate: 1000,
+    targetIndex: 0,
+    confidence: 0.82,
+    frequency: 8,
+    rawScore: 0.82,
+    margin: 0.18,
+    stableCount: 3,
+    scores: [0.82, 0.61, 0.56],
+    windowSeconds: 0.2,
+    stepSeconds: 0.05,
+    harmonics: 4,
+    minScore: 0.7,
+    minMargin: 0.1,
+    stableRequired: 3,
+    detail: "DSTF-Net inspired mock reconstruction; not clinical validation",
+  });
+  assert.equal(selection.status, 201);
+  const selectionBody = await selection.json();
+  assert.equal(selectionBody.event.source, "frontal_dstf_research");
+  assert.equal(selectionBody.event.streamName, "dstf_net_mock");
+  assert.equal(selectionBody.event.detail, "DSTF-Net inspired mock reconstruction; not clinical validation");
+  assert.equal(selectionBody.event.frequency, 8);
+  assert.equal(selectionBody.event.windowSeconds, 0.2);
+  assert.equal(selectionBody.event.harmonics, 4);
 });
 
 test("creates and advances a nursing task through valid states", async () => {

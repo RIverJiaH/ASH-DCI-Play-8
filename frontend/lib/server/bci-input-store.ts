@@ -16,6 +16,8 @@ export type BciBridgeStatus = {
 
 export type BciSelectionEvent = {
   id: number;
+  source: string;
+  streamName: string;
   targetIndex: number;
   confidence: number;
   frequency: number;
@@ -29,6 +31,7 @@ export type BciSelectionEvent = {
   minScore?: number;
   minMargin?: number;
   stableRequired?: number;
+  detail?: string;
   receivedAt: string;
 };
 
@@ -98,6 +101,8 @@ class BciInputStore {
 
     const event: BciSelectionEvent = {
       id: this.nextId++,
+      source: this.status.source,
+      streamName: this.status.streamName,
       targetIndex,
       confidence: round(confidence, 4),
       frequency: round(frequency, 3),
@@ -111,6 +116,7 @@ class BciInputStore {
       minScore: minScore === undefined ? undefined : round(minScore, 4),
       minMargin: minMargin === undefined ? undefined : round(minMargin, 4),
       stableRequired,
+      detail: this.status.detail,
       receivedAt: new Date().toISOString(),
     };
 

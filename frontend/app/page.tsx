@@ -19,15 +19,19 @@ import {
 import { DEMO_PATIENTS } from "../lib/demo-patients";
 
 type View = "patient" | "nurse";
-type InputMode = "simulation" | "openbci";
+type InputMode = "simulation" | "openbci" | "dstf";
 
 const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
 
 const SSVEP_OPTION_TARGET_COUNT = 4;
+const DSTF_OPTION_TARGET_COUNT = 3;
 const BACK_TARGET_INDEX = 4;
 const FINAL_CONFIRM_TARGET_INDEX = 0;
 const FINAL_RESET_TARGET_INDEX = 1;
 const DEFAULT_SSVEP_FREQUENCIES = [6, 8.57, 13.85, 15, 10] as const;
+const DSTF_RESEARCH_FREQUENCIES = [8, 9, 10, 11, 10] as const;
+const OPENBCI_SOURCE = "openbci_ssvep";
+const DSTF_RESEARCH_SOURCE = "frontal_dstf_research";
 const EMPTY_OPTIONS: CareOption[] = [];
 
 function createSessionId() {
@@ -165,6 +169,8 @@ type BciBridgeStatus = {
 
 type BciSelectionEvent = {
   id: number;
+  source: string;
+  streamName: string;
   targetIndex: number;
   confidence: number;
   frequency: number;
@@ -178,6 +184,7 @@ type BciSelectionEvent = {
   minScore?: number;
   minMargin?: number;
   stableRequired?: number;
+  detail?: string;
   receivedAt: string;
 };
 
@@ -187,12 +194,41 @@ type BciPollResponse = {
   events: BciSelectionEvent[];
 };
 
-function targetFrequency(status: BciBridgeStatus, targetIndex: number) {
-  return status.frequencies[targetIndex] ?? DEFAULT_SSVEP_FREQUENCIES[targetIndex] ?? DEFAULT_SSVEP_FREQUENCIES[0];
+function isBridgeInputMode(mode: InputMode) {
+  return mode !== "simulation";
 }
 
-function formatTargetLabel(status: BciBridgeStatus, targetIndex: number) {
-  return `F${targetIndex + 1} · ${targetFrequency(status, targetIndex)} Hz`;
+function bciSourceForMode(mode: InputMode) {
+  return mode === "dstf" ? DSTF_RESEARCH_SOURCE : OPENBCI_SOURCE;
+}
+
+function bridgeLabel(mode: InputMode) {
+  return mode === "dstf" ? "DSTF前额重构" : "OpenBCI";
+}
+
+function signalTitle(mode: InputMode) {
+  if (mode === "dstf") return "DSTF前额重构信号";
+  if (mode === "openbci") return "OpenBCI 实时信号";
+  return "模拟脑控信号";
+}
+
+function signalInputLabel(mode: InputMode) {
+  if (mode === "dstf") return "前额EEG · DSTF研究模式";
+  if (mode === "openbci") return "Cyton+Daisy · LSL";
+  return "点击 / 数字键模拟";
+}
+
+function defaultFrequenciesForMode(mode: InputMode) {
+  return mode === "dstf" ? DSTF_RESEARCH_FREQUENCIES : DEFAULT_SSVEP_FREQUENCIES;
+}
+
+function targetFrequency(status: BciBridgeStatus, targetIndex: number, mode: InputMode) {
+  const defaults = defaultFrequenciesForMode(mode);
+  return status.frequencies[targetIndex] ?? defaults[targetIndex] ?? defaults[0];
+}
+
+function formatTargetLabel(status: BciBridgeStatus, targetIndex: number, mode: InputMode) {
+  return `F${targetIndex + 1} · ${targetFrequency(status, targetIndex, mode)} Hz`;
 }
 
 function formatBciEventDetail(event: BciSelectionEvent) {
@@ -211,12 +247,34 @@ function formatBciEventDetail(event: BciSelectionEvent) {
 
 const OFFLINE_BCI_STATUS: BciBridgeStatus = {
   connected: false,
-  source: "openbci_ssvep",
+  source: OPENBCI_SOURCE,
   streamName: "obci_eeg1",
   state: "offline",
   channels: [1, 3, 4],
   frequencies: [],
 };
+
+const OFFLINE_DSTF_STATUS: BciBridgeStatus = {
+  connected: false,
+  source: DSTF_RESEARCH_SOURCE,
+  streamName: "dstf_net_mock",
+  state: "offline",
+  channels: [1, 2, 3, 4, 5],
+  frequencies: [...DSTF_RESEARCH_FREQUENCIES],
+  detail: "DSTF-Net inspired mock reconstruction; not clinical validation",
+};
+
+function fallbackStatusForMode(mode: InputMode): BciBridgeStatus {
+  return mode === "dstf" ? OFFLINE_DSTF_STATUS : OFFLINE_BCI_STATUS;
+}
+
+function statusForMode(mode: InputMode, status: BciBridgeStatus): BciBridgeStatus {
+  return status.source === bciSourceForMode(mode) ? status : fallbackStatusForMode(mode);
+}
+
+function eventBelongsToMode(mode: InputMode, event: BciSelectionEvent) {
+  return event.source === bciSourceForMode(mode);
+}
 
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("patient");
@@ -247,9 +305,11 @@ export default function Home() {
   const isEmergency = selections[0]?.option.intentCode === "category.emergency";
   const isComplete = selections.at(-1)?.option.terminal === true || stage === 3;
   const options = stage === 0 ? ROOT_OPTIONS : currentOptionSet?.options ?? EMPTY_OPTIONS;
+  const bridgeInputActive = isBridgeInputMode(inputMode);
+  const ssvepOptionTargetCount = inputMode === "dstf" ? DSTF_OPTION_TARGET_COUNT : SSVEP_OPTION_TARGET_COUNT;
   const selectableOptions = useMemo(
-    () => options.slice(0, SSVEP_OPTION_TARGET_COUNT),
-    [options],
+    () => options.slice(0, ssvepOptionTargetCount),
+    [options, ssvepOptionTargetCount],
   );
   const canGoBack = stage > 0;
   const totalSteps = isComplete ? stage : 3;
@@ -452,7 +512,7 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (inputMode !== "openbci") return;
+    if (!bridgeInputActive) return;
     let cancelled = false;
 
     async function pollBci() {
@@ -464,12 +524,14 @@ export default function Home() {
         );
         if (cancelled) return;
         bciCursorRef.current = snapshot.cursor;
-        setBciStatus(snapshot.status);
+        const nextStatus = statusForMode(inputMode, snapshot.status);
+        const modeEvents = snapshot.events.filter((event) => eventBelongsToMode(inputMode, event));
+        setBciStatus(nextStatus);
 
-        if (snapshot.events.length > 0) {
-          setBciEvents((current) => [...snapshot.events].reverse().concat(current).slice(0, 8));
+        if (modeEvents.length > 0) {
+          setBciEvents((current) => [...modeEvents].reverse().concat(current).slice(0, 8));
         }
-        const event = snapshot.events.at(-1);
+        const event = modeEvents.at(-1);
         if (!event) return;
         setLastBciEvent(event);
         setSimConfidence(event.confidence);
@@ -480,19 +542,19 @@ export default function Home() {
           || isBusy
           || optionState === "generating"
         ) {
-          setNotice(`已收到 F${event.targetIndex + 1}，当前页面暂不接受选择`);
+          setNotice(`已收到 ${bridgeLabel(inputMode)} F${event.targetIndex + 1}，当前页面暂不接受选择`);
           return;
         }
 
         if (isComplete) {
           if (event.targetIndex === FINAL_CONFIRM_TARGET_INDEX) {
-            setNotice("已收到 F1，确认发送需求");
+            setNotice(`已收到 ${bridgeLabel(inputMode)} F1，确认发送需求`);
             await confirmBciRequest();
             return;
           }
           if (event.targetIndex === FINAL_RESET_TARGET_INDEX) {
             resetBciPatientFlow();
-            setNotice("已收到 F2，返回重新选择");
+            setNotice(`已收到 ${bridgeLabel(inputMode)} F2，返回重新选择`);
             return;
           }
           setNotice("最终确认页仅接受 F1 确认发送或 F2 重新选择");
@@ -534,7 +596,7 @@ export default function Home() {
       } catch (error) {
         if (!cancelled) {
           setBciStatus((current) => ({ ...current, connected: false, state: "offline" }));
-          setNotice(`OpenBCI 接口异常：${(error as Error).message}`);
+          setNotice(`${bridgeLabel(inputMode)} 接口异常：${(error as Error).message}`);
         }
       } finally {
         bciPollingRef.current = false;
@@ -549,6 +611,7 @@ export default function Home() {
     };
   }, [
     activeView,
+    bridgeInputActive,
     canGoBack,
     inputMode,
     isBusy,
@@ -569,14 +632,16 @@ export default function Home() {
 
     try {
       const snapshot = await apiRequest<BciPollResponse>("/api/bci/events");
+      const nextStatus = statusForMode(nextMode, snapshot.status);
+      const modeEvents = snapshot.events.filter((event) => eventBelongsToMode(nextMode, event));
       bciCursorRef.current = snapshot.cursor;
-      setBciStatus(snapshot.status);
-      setLastBciEvent(snapshot.events.at(-1) ?? null);
-      setBciEvents([...snapshot.events].reverse().slice(0, 8));
-      setInputMode("openbci");
-      setNotice(snapshot.status.connected ? "OpenBCI 已连接，等待稳定目标" : "等待 OpenBCI 桥接器连接");
+      setBciStatus(nextStatus);
+      setLastBciEvent(modeEvents.at(-1) ?? null);
+      setBciEvents([...modeEvents].reverse().slice(0, 8));
+      setInputMode(nextMode);
+      setNotice(nextStatus.connected ? `${bridgeLabel(nextMode)} 已连接，等待稳定目标` : `等待 ${bridgeLabel(nextMode)} 桥接器连接`);
     } catch (error) {
-      setNotice(`无法启用 OpenBCI：${(error as Error).message}`);
+      setNotice(`无法启用 ${bridgeLabel(nextMode)}：${(error as Error).message}`);
     }
   }
 
@@ -772,7 +837,7 @@ export default function Home() {
                 ) : (
                   <div className={`option-grid${canGoBack ? " with-back-target" : ""}`} role="group" aria-label="脑控候选项">
                     {selectableOptions.map((option, index) => {
-                      const frequency = targetFrequency(bciStatus, index);
+                      const frequency = targetFrequency(bciStatus, index, inputMode);
                       return (
                         <button
                           type="button"
@@ -782,7 +847,7 @@ export default function Home() {
                           onClick={() => void selectOption(option)}
                         >
                           <span className="option-target-row">
-                            <span className="target-label">{formatTargetLabel(bciStatus, index)}</span>
+                            <span className="target-label">{formatTargetLabel(bciStatus, index, inputMode)}</span>
                             <span className="option-markers">
                               {option.evidence?.length ? <span className="clinical-option-marker">病历</span> : null}
                               {option.safetyRule && <span className="safety-option-marker">需评估</span>}
@@ -810,14 +875,14 @@ export default function Home() {
                         onClick={goBackOneLevel}
                         >
                           <span className="option-target-row">
-                            <span className="target-label">{formatTargetLabel(bciStatus, BACK_TARGET_INDEX)}</span>
+                            <span className="target-label">{formatTargetLabel(bciStatus, BACK_TARGET_INDEX, inputMode)}</span>
                             <span className="option-markers">
                               <span className="navigation-option-marker">返回</span>
                             </span>
                           </span>
                           <span
                             className="ssvep-flicker"
-                            style={{ animationDuration: `${1 / targetFrequency(bciStatus, BACK_TARGET_INDEX)}s` }}
+                            style={{ animationDuration: `${1 / targetFrequency(bciStatus, BACK_TARGET_INDEX, inputMode)}s` }}
                             aria-hidden="true"
                           />
                         <strong>返回上一级</strong>
@@ -898,14 +963,14 @@ export default function Home() {
                     onClick={() => void confirmRequest()}
                   >
                     <span className="option-target-row">
-                      <span className="target-label">{formatTargetLabel(bciStatus, FINAL_CONFIRM_TARGET_INDEX)}</span>
+                      <span className="target-label">{formatTargetLabel(bciStatus, FINAL_CONFIRM_TARGET_INDEX, inputMode)}</span>
                       <span className="option-markers">
                         <span className="safety-option-marker">确认</span>
                       </span>
                     </span>
                     <span
                       className="ssvep-flicker"
-                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, FINAL_CONFIRM_TARGET_INDEX)}s` }}
+                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, FINAL_CONFIRM_TARGET_INDEX, inputMode)}s` }}
                       aria-hidden="true"
                     />
                     <strong>{isBusy ? "正在发送…" : "确认并发送需求"}</strong>
@@ -919,14 +984,14 @@ export default function Home() {
                     onClick={resetPatientFlow}
                   >
                     <span className="option-target-row">
-                      <span className="target-label">{formatTargetLabel(bciStatus, FINAL_RESET_TARGET_INDEX)}</span>
+                      <span className="target-label">{formatTargetLabel(bciStatus, FINAL_RESET_TARGET_INDEX, inputMode)}</span>
                       <span className="option-markers">
                         <span className="navigation-option-marker">重选</span>
                       </span>
                     </span>
                     <span
                       className="ssvep-flicker"
-                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, FINAL_RESET_TARGET_INDEX)}s` }}
+                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, FINAL_RESET_TARGET_INDEX, inputMode)}s` }}
                       aria-hidden="true"
                     />
                     <strong>重新选择</strong>
@@ -954,11 +1019,11 @@ export default function Home() {
             <header>
               <div>
                 <span className="eyebrow">Demo 输入源</span>
-                <h2 id="signal-title">{inputMode === "openbci" ? "OpenBCI 实时信号" : "模拟脑控信号"}</h2>
+                <h2 id="signal-title">{signalTitle(inputMode)}</h2>
               </div>
-              <span className={`live-status${inputMode === "openbci" && !bciStatus.connected ? " is-offline" : ""}`}>
+              <span className={`live-status${bridgeInputActive && !bciStatus.connected ? " is-offline" : ""}`}>
                 <i />
-                {inputMode === "openbci" ? (bciStatus.connected ? "已连接" : "未连接") : "稳定"}
+                {bridgeInputActive ? (bciStatus.connected ? "已连接" : "未连接") : "稳定"}
               </span>
             </header>
 
@@ -979,7 +1044,22 @@ export default function Home() {
               >
                 OpenBCI
               </button>
+              <button
+                type="button"
+                className={inputMode === "dstf" ? "is-active" : ""}
+                aria-pressed={inputMode === "dstf"}
+                onClick={() => void changeInputMode("dstf")}
+              >
+                DSTF前额
+              </button>
             </div>
+
+            {inputMode === "dstf" && (
+              <div className="research-mode-note" role="status">
+                <strong>DSTF-Net研究模式</strong>
+                <span>按论文路线模拟“前额EEG→枕叶样SSVEP重构→CCA识别”，仅用于Demo验证，不代表临床验证。</span>
+              </div>
+            )}
 
             <section className="demo-context-panel" aria-labelledby="demo-context-title">
               <label htmlFor="demo-patient">
@@ -1024,7 +1104,7 @@ export default function Home() {
                 max="0.99"
                 step="0.01"
                 value={simConfidence}
-                disabled={inputMode === "openbci"}
+                disabled={bridgeInputActive}
                 onChange={(event) => setSimConfidence(Number(event.target.value))}
               />
             </label>
@@ -1037,10 +1117,10 @@ export default function Home() {
 
             <div className="signal-readout">
               <span>输入方式</span>
-              <strong>{inputMode === "openbci" ? "Cyton+Daisy · LSL" : "点击 / 数字键模拟"}</strong>
+              <strong>{signalInputLabel(inputMode)}</strong>
               <span>通道</span>
-              <strong>{inputMode === "openbci" ? bciStatus.channels.join(" / ") : "模拟目标 F1–F4"}</strong>
-              {inputMode === "openbci" && (
+              <strong>{bridgeInputActive ? bciStatus.channels.join(" / ") : "模拟目标 F1–F4"}</strong>
+              {bridgeInputActive && (
                 <>
                   <span>数据流</span>
                   <strong>{bciStatus.streamName}{bciStatus.sampleRate ? ` · ${bciStatus.sampleRate} Hz` : ""}</strong>
@@ -1050,18 +1130,24 @@ export default function Home() {
                       ? `F${lastBciEvent.targetIndex + 1} · ${lastBciEvent.frequency} Hz · ${formatBciEventDetail(lastBciEvent)}`
                       : "尚无稳定目标"}
                   </strong>
+                  {bciStatus.detail && (
+                    <>
+                      <span>算法说明</span>
+                      <strong>{bciStatus.detail}</strong>
+                    </>
+                  )}
                 </>
               )}
               <span>当前状态</span><strong>{notice}</strong>
             </div>
 
-            {inputMode === "openbci" && (
+            {bridgeInputActive && (
               <section className="event-preview bci-recognition-log" aria-labelledby="bci-events-title">
-                <h3 id="bci-events-title">OpenBCI 识别日志</h3>
+                <h3 id="bci-events-title">{bridgeLabel(inputMode)} 识别日志</h3>
                 {bciEvents.length === 0 && (
                   <div className="event-row">
                     <time>--:--</time>
-                    <p><strong>暂无识别记录</strong><span>等待 OpenBCI 稳定目标</span></p>
+                    <p><strong>暂无识别记录</strong><span>等待 {bridgeLabel(inputMode)} 稳定目标</span></p>
                   </div>
                 )}
                 {bciEvents.slice(0, 4).map((event) => (
@@ -1069,7 +1155,7 @@ export default function Home() {
                     <time>{new Date(event.receivedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
                     <p>
                       <strong>F{event.targetIndex + 1} · {event.frequency} Hz</strong>
-                      <span>{formatBciEventDetail(event)}</span>
+                      <span>{formatBciEventDetail(event)}{event.detail ? ` · ${event.detail}` : ""}</span>
                     </p>
                   </div>
                 ))}

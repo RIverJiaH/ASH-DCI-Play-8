@@ -12,7 +12,7 @@ DeepSeek 模式只允许模型调整审核候选项的顺序和短标签。模�
 | --- | --- | --- |
 | `GET` | `/api/demo` | 获取任务、事件和置信度阈值 |
 | `POST` | `/api/brain-control/evaluate` | 判定脑控输入是拒绝、需要确认还是接受 |
-| `GET` | `/api/bci/events` | 页面轮询本机 OpenBCI 桥接状态和稳定目标事件 |
+| `GET` | `/api/bci/events` | 页面轮询本机 OpenBCI 或 DSTF 研究桥接状态和稳定目标事件 |
 | `POST` | `/api/bci/events` | 本机桥接器提交心跳或稳定目标；拒绝公网转发写入 |
 | `POST` | `/api/tasks` | 根据 1 到 3 层的完整确认路径创建护理任务 |
 | `PATCH` | `/api/tasks/:id` | 接单、进一步评估、暂时无法完成、完成或记录转交申请 |
@@ -27,6 +27,7 @@ DeepSeek 模式只允许模型调整审核候选项的顺序和短标签。模�
 - 护理人员可将 `accepted` 标记为 `review`，评估后再进入 `done`。
 - `accepted` 或 `review` 可标记为 `blocked`，表示暂时无法完成并等待转交。
 - 整体置信度取已完成确认路径中的最低值，不代表医学诊断结论。
+- `source=frontal_dstf_research` 的事件只表示 DSTF-Net 论文路线模拟重构输入，不代表论文源码复现、真实前额 EEG 识别或临床验证。
 
 ## 数据存储
 
