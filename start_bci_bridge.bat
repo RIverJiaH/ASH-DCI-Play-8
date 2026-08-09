@@ -15,6 +15,7 @@ echo Board: Cyton+Daisy, 16 channels
 echo OpenBCI GUI: COM6
 echo LSL stream: obci_eeg1
 echo EEG channels: 1,3,4
+echo Fallback sample rate: 250 Hz
 echo.
 echo Keep Brain Care Demo running at http://127.0.0.1:8000/
 echo Look away from all targets before repeating the same selection.
