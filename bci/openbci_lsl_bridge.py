@@ -387,7 +387,7 @@ def parse_args() -> argparse.Namespace:
         type=parse_float_list,
         default=[6.0, 8.57, 13.85, 15.0, 10.0],
     )
-    parser.add_argument("--sample-rate", type=float, default=125.0)
+    parser.add_argument("--sample-rate", type=float, default=250.0)
     parser.add_argument("--window-seconds", type=float, default=2.5)
     parser.add_argument("--step-seconds", type=float, default=0.5)
     parser.add_argument("--harmonics", type=int, default=3)
