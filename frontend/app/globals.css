@@ -520,6 +520,47 @@ p {
   margin-top: 24px;
 }
 
+.final-need-card {
+  margin-bottom: 24px;
+  padding: 22px 24px;
+  border: 2px solid var(--teal);
+  border-radius: var(--radius);
+  background: var(--teal-soft);
+}
+
+.final-need-card span,
+.final-need-card strong,
+.final-need-card p,
+.success-label {
+  display: block;
+}
+
+.final-need-card span,
+.success-label {
+  color: var(--teal-dark);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.final-need-card strong {
+  margin-top: 8px;
+  font-size: 28px;
+  line-height: 1.4;
+}
+
+.final-need-card p {
+  margin-top: 10px;
+  color: #355a59;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.delivery-status {
+  color: var(--green) !important;
+  font-weight: 800;
+}
+
 .final-target-grid .ssvep-option {
   min-height: 250px;
 }
@@ -1189,6 +1230,26 @@ p {
 .success-state p {
   margin-top: 8px;
   color: var(--muted);
+}
+
+.submitted-target-grid {
+  width: min(100%, 460px);
+  margin: 26px auto 0;
+}
+
+.submitted-target-grid .ssvep-option {
+  width: 100%;
+  min-height: 230px;
+}
+
+.submitted-return-option::before {
+  background: var(--amber);
+  opacity: 0.42;
+}
+
+.submitted-return-option:hover {
+  border-color: var(--amber);
+  background: var(--amber-soft);
 }
 
 .success-mark {

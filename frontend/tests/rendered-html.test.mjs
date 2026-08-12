@@ -113,6 +113,13 @@ test("keeps safety thresholds and task workflow in source", async () => {
   assert.match(page, /\/api\/tasks/);
   assert.match(page, /OpenBCI 识别日志/);
   assert.match(page, /最终确认脑控目标/);
+  assert.match(page, /患者最终需求/);
+  assert.match(page, /送达后脑控操作/);
+  assert.match(page, /SUBMITTED_RETURN_TARGET_INDEX/);
+  assert.doesNotMatch(page, />查看护理端</);
+  assert.match(page, /每秒自动同步/);
+  assert.match(page, /setInterval\(\(\) => void syncNursingQueue\(\), 1000\)/);
+  assert.match(page, /URLSearchParams\(window\.location\.search\)\.get\("view"\)/);
   assert.match(page, /FINAL_CONFIRM_TARGET_INDEX/);
   assert.doesNotMatch(page, /localStorage/);
   assert.match(page, /pending.*accepted.*done/s);

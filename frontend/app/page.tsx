@@ -27,6 +27,7 @@ const SSVEP_OPTION_TARGET_COUNT = 4;
 const BACK_TARGET_INDEX = 4;
 const FINAL_CONFIRM_TARGET_INDEX = 0;
 const FINAL_RESET_TARGET_INDEX = 1;
+const SUBMITTED_RETURN_TARGET_INDEX = 0;
 const DEFAULT_SSVEP_FREQUENCIES = [6, 8.57, 13.85, 15, 10] as const;
 const EMPTY_OPTIONS: CareOption[] = [];
 
@@ -241,6 +242,7 @@ export default function Home() {
   const [bciEvents, setBciEvents] = useState<BciSelectionEvent[]>([]);
   const bciCursorRef = useRef(0);
   const bciPollingRef = useRef(false);
+  const taskPollingRef = useRef(false);
 
   const stage = selections.length;
   const selectedPatient = DEMO_PATIENTS.find((patient) => patient.bed === patientBed) ?? DEMO_PATIENTS[0];
@@ -292,6 +294,10 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    if (requestedView === "nurse" || requestedView === "patient") {
+      setActiveView(requestedView);
+    }
     apiRequest<DemoState>("/api/demo")
       .then((state) => {
         if (cancelled) return;
@@ -306,6 +312,47 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (activeView !== "nurse") return;
+    let cancelled = false;
+
+    async function syncNursingQueue() {
+      if (cancelled || taskPollingRef.current) return;
+      taskPollingRef.current = true;
+      try {
+        const state = await apiRequest<DemoState>(`/api/demo?sync=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        setTasks(state.tasks);
+        setEvents(state.events);
+        setSelectedTaskId((current) => (
+          state.tasks.some((task) => task.id === current)
+            ? current
+            : state.tasks[0]?.id ?? ""
+        ));
+      } catch (error) {
+        if (!cancelled) setNotice(`护理端同步失败：${(error as Error).message}`);
+      } finally {
+        taskPollingRef.current = false;
+      }
+    }
+
+    void syncNursingQueue();
+    const timer = window.setInterval(() => void syncNursingQueue(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeView]);
+
+  function changeView(view: View) {
+    setActiveView(view);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", view);
+    window.history.replaceState(null, "", url);
+  }
 
   useEffect(() => {
     if (!sessionId || submitted || isComplete || stage === 0) return;
@@ -434,8 +481,12 @@ export default function Home() {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "BUTTON") return;
       if (inputMode !== "simulation") return;
-      if (activeView !== "patient" || submitted || pendingCandidate || isBusy) return;
+      if (activeView !== "patient" || pendingCandidate || isBusy) return;
       const index = Number(event.key) - 1;
+      if (submitted) {
+        if (index === SUBMITTED_RETURN_TARGET_INDEX) resetPatientFlow();
+        return;
+      }
       if (isComplete) {
         if (index === FINAL_CONFIRM_TARGET_INDEX) void confirmRequest();
         if (index === FINAL_RESET_TARGET_INDEX) resetPatientFlow();
@@ -476,11 +527,20 @@ export default function Home() {
 
         if (
           activeView !== "patient"
-          || submitted
           || isBusy
           || optionState === "generating"
         ) {
           setNotice(`已收到 F${event.targetIndex + 1}，当前页面暂不接受选择`);
+          return;
+        }
+
+        if (submitted) {
+          if (event.targetIndex === SUBMITTED_RETURN_TARGET_INDEX) {
+            resetBciPatientFlow();
+            setNotice("已收到 F1，返回需求首页");
+          } else {
+            setNotice("需求已送达，当前仅接受 F1 返回需求首页");
+          }
           return;
         }
 
@@ -696,7 +756,7 @@ export default function Home() {
             type="button"
             className={activeView === "patient" ? "is-active" : ""}
             aria-pressed={activeView === "patient"}
-            onClick={() => setActiveView("patient")}
+            onClick={() => changeView("patient")}
           >
             患者端
           </button>
@@ -704,7 +764,7 @@ export default function Home() {
             type="button"
             className={activeView === "nurse" ? "is-active" : ""}
             aria-pressed={activeView === "nurse"}
-            onClick={() => setActiveView("nurse")}
+            onClick={() => changeView("nurse")}
           >
             护理端
             {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
@@ -868,10 +928,15 @@ export default function Home() {
 
             {!submitted && isComplete && (
               <div className="request-review">
+                <section className="final-need-card" aria-label="患者最终需求">
+                  <span>患者最终需求</span>
+                  <strong>{buildNeed(selections)}</strong>
+                  <p>请核对以上内容。确认后将立即发送到护理端，护理人员会在任务队列中看到此请求。</p>
+                </section>
                 <div className="review-heading">
                   <div>
-                    <span className="eyebrow">最终确认</span>
-                    <h2>{buildNeed(selections)}</h2>
+                    <span className="eyebrow">选择路径复核</span>
+                    <h2>确认需求内容与置信度</h2>
                   </div>
                   <span className={`priority-badge ${previewPriority}`}>优先级 {PRIORITY_LABEL[previewPriority]}</span>
                 </div>
@@ -909,7 +974,7 @@ export default function Home() {
                       aria-hidden="true"
                     />
                     <strong>{isBusy ? "正在发送…" : "确认并发送需求"}</strong>
-                    <span className="option-route confirm_task">生成护理任务并进入护理端</span>
+                    <span className="option-route confirm_task">最终提交：{buildNeed(selections)}</span>
                     <span className="key-label">{FINAL_CONFIRM_TARGET_INDEX + 1}</span>
                   </button>
                   <button
@@ -940,11 +1005,31 @@ export default function Home() {
             {submitted && (
               <div className="success-state" role="status">
                 <span className="success-mark" aria-hidden="true">✓</span>
+                <span className="success-label">已提交的最终需求</span>
                 <h2>{buildNeed(selections)}</h2>
                 <p>来源：{isEmergency ? "脑控确认" : "AI引导 · 脑控确认"} · 整体置信度 {overallConfidence.toFixed(2)}</p>
-                <div className="review-actions">
-                  <button type="button" className="button secondary" onClick={resetPatientFlow}>发起新需求</button>
-                  <button type="button" className="button primary" onClick={() => setActiveView("nurse")}>查看护理端</button>
+                <p className="delivery-status">护理端已接收，另一台电脑将在 1 秒内自动显示。</p>
+                <div className="submitted-target-grid" role="group" aria-label="送达后脑控操作">
+                  <button
+                    type="button"
+                    className="ssvep-option submitted-return-option"
+                    onClick={resetPatientFlow}
+                  >
+                    <span className="option-target-row">
+                      <span className="target-label">{formatTargetLabel(bciStatus, SUBMITTED_RETURN_TARGET_INDEX)}</span>
+                      <span className="option-markers">
+                        <span className="navigation-option-marker">返回</span>
+                      </span>
+                    </span>
+                    <span
+                      className="ssvep-flicker"
+                      style={{ animationDuration: `${1 / targetFrequency(bciStatus, SUBMITTED_RETURN_TARGET_INDEX)}s` }}
+                      aria-hidden="true"
+                    />
+                    <strong>返回需求首页</strong>
+                    <span className="option-route back_target">发起新的患者需求</span>
+                    <span className="key-label">{SUBMITTED_RETURN_TARGET_INDEX + 1}</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -1094,7 +1179,7 @@ export default function Home() {
               <div>
                 <span className="eyebrow">实时护理任务</span>
                 <h1 id="queue-title">任务队列</h1>
-                <p>按临床优先级与等待状态排列</p>
+                <p>按临床优先级与等待状态排列 · 每秒自动同步</p>
               </div>
               <span className="count-badge">{pendingCount} 项待接单</span>
             </header>

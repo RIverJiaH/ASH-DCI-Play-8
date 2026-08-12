@@ -45,6 +45,7 @@ export default defineConfig(async () => {
 
   return {
     server: {
+      allowedHosts: [".cpolar.cn", ".cpolar.io", ".cpolar.top"],
       ...(isCodexSeatbeltSandbox
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),
