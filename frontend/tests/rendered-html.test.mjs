@@ -87,14 +87,14 @@ test("server-renders the Brain Care demo", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /脑护通/);
-  assert.match(html, /AI临床情境辅助 Demo V3/);
-  assert.match(html, /患者端/);
-  assert.match(html, /护理端/);
-  assert.match(html, /模拟脑控信号/);
-  assert.match(html, /模拟病历场景/);
-  assert.match(html, /肢体状态/);
-  assert.match(html, /查看完整模拟病历/);
+  assert.match(html, /脑脉护通/);
+  assert.match(html, /SAH-DCI智能预警系统/);
+  assert.match(html, /患者脑控端/);
+  assert.match(html, /护理任务端/);
+  assert.match(html, /三位模拟患者/);
+  assert.match(html, /风险积分阶梯/);
+  assert.match(html, /多模态证据链/);
+  assert.match(html, /模拟患者 A/);
   assert.doesNotMatch(html, /Your site is taking shape|Starter Project|codex-preview/);
 });
 
@@ -123,7 +123,7 @@ test("keeps safety thresholds and task workflow in source", async () => {
   assert.match(page, /FINAL_CONFIRM_TARGET_INDEX/);
   assert.doesNotMatch(page, /localStorage/);
   assert.match(page, /pending.*accepted.*done/s);
-  assert.match(layout, /脑护通/);
+  assert.match(layout, /脑脉护通/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
@@ -501,4 +501,67 @@ test("keeps DeepSeek generation server-side and constrained", async () => {
   assert.match(page, /OpenBCI 实时信号/);
   assert.match(envExample, /DEEPSEEK_API_KEY=/);
   assert.doesNotMatch(envExample, /sk-[a-zA-Z0-9]{12,}/);
+});
+
+test("serves three SAH-DCI demo cases and completes the red-risk closed loop", async () => {
+  const reset = await request("/api/dci", { method: "POST" });
+  assert.equal(reset.status, 200);
+  const initial = await reset.json();
+  assert.equal(initial.cases.length, 3);
+  assert.deepEqual(initial.cases.map((item) => item.currentRiskScore), [1, 4, 8]);
+
+  const incomplete = await jsonRequest("/api/dci", "PATCH", {
+    bed: "C03",
+    action: "nurse_review",
+    review: { signalChecked: true },
+  });
+  assert.equal(incomplete.status, 422);
+
+  const nurse = await jsonRequest("/api/dci", "PATCH", {
+    bed: "C03",
+    action: "nurse_review",
+    review: {
+      signalChecked: true,
+      bedsideChecked: true,
+      vitalsChecked: true,
+      medicationChecked: true,
+      nurseNote: "未见明显电极脱落、低氧或低血压，升级医生复核。",
+    },
+  });
+  assert.equal(nurse.status, 200);
+  assert.equal((await nurse.json()).case.workflowStatus, "doctor_pending");
+
+  const doctor = await jsonRequest("/api/dci", "PATCH", {
+    bed: "C03",
+    action: "doctor_confirm",
+    review: {
+      doctorNote: "结合床旁神经状态继续医学复核。",
+      examPlan: "TCD趋势复查",
+    },
+  });
+  assert.equal(doctor.status, 200);
+  assert.equal((await doctor.json()).case.workflowStatus, "tracking");
+
+  const followup = await jsonRequest("/api/dci", "PATCH", { bed: "C03", action: "apply_followup" });
+  assert.equal(followup.status, 200);
+  const followedCase = (await followup.json()).case;
+  assert.equal(followedCase.workflowStatus, "resolved");
+  assert.equal(followedCase.currentRiskScore, 3);
+  assert.equal(followedCase.followupApplied, true);
+
+  const report = await jsonRequest("/api/dci", "PATCH", { bed: "C03", action: "generate_report" });
+  assert.equal(report.status, 200);
+  assert.equal((await report.json()).case.reportGenerated, true);
+});
+
+test("returns a controlled five-part DCI Agent explanation", async () => {
+  const response = await jsonRequest("/api/dci/analyze", "POST", { bed: "B02" });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.ok(["deepseek", "controlled_fallback"].includes(body.source));
+  assert.match(body.trigger, /ADR|alpha|风险/);
+  assert.ok(Array.isArray(body.evidence) && body.evidence.length >= 2);
+  assert.ok(Array.isArray(body.nurseChecklist) && body.nurseChecklist.length >= 2);
+  assert.match(body.doctorSummary, /B02|术后第3天/);
+  assert.match(body.safetyBoundary, /不构成诊断|不替代医生/);
 });

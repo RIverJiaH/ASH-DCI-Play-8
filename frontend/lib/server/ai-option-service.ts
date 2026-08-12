@@ -142,6 +142,7 @@ function clinicalContextFor(
     return [
       patient.communication,
       patient.scenarioLabel,
+      patient.positionRestriction === "postoperative_assessment" ? "术后体位限制" : patient.positionRestrictionLabel,
       ...patient.diagnoses.slice(0, 2),
       patient.motorFunctionLabel,
       patient.swallowingRiskLabel,

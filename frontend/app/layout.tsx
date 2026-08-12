@@ -9,18 +9,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = `${protocol}://${host}`;
 
   return {
-    title: "脑护通 · AI临床情境辅助 Demo V3",
-    description: "模拟病历、受控AI路径、置信度安全判断与护理任务闭环演示。",
+    title: "脑脉护通 · SAH-DCI智能预警系统",
+    description: "非侵入式EEG/qEEG、循证规则风险积分、医学知识增强Agent与医护复核闭环演示。",
     metadataBase: new URL(origin),
     openGraph: {
-      title: "脑护通",
-      description: "模拟病历与受控AI护理任务闭环演示",
+      title: "脑脉护通 · SAH-DCI智能预警系统",
+      description: "三位模拟患者的风险分级、AI解释与医护复核闭环演示",
       images: [`${origin}/og.png`],
     },
     twitter: {
       card: "summary_large_image",
-      title: "脑护通",
-      description: "模拟病历与受控AI护理任务闭环演示",
+      title: "脑脉护通 · SAH-DCI智能预警系统",
+      description: "三位模拟患者的风险分级、AI解释与医护复核闭环演示",
       images: [`${origin}/og.png`],
     },
   };

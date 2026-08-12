@@ -5,6 +5,7 @@ chcp 65001 >nul
 cd /d "%~dp0frontend"
 
 echo [Brain Care] Starting the local demo...
+echo SAH-DCI dashboard: http://localhost:8000/?view=dci
 echo Patient: http://localhost:8000/?view=patient
 echo Nurse:   http://localhost:8000/?view=nurse
 echo Other computers should replace localhost with this computer's LAN IPv4 address.

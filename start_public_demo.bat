@@ -30,9 +30,11 @@ if defined PUBLIC_HOST (
 )
 
 echo Starting Brain Care Demo...
+echo Local SAH-DCI: http://127.0.0.1:8000/?view=dci
 echo Local patient: http://127.0.0.1:8000/?view=patient
 echo Local nurse:   http://127.0.0.1:8000/?view=nurse
 if defined PUBLIC_HOST (
+  echo Public SAH-DCI: !PUBLIC_HTTPS_URL!/?view=dci
   echo Public patient: !PUBLIC_HTTPS_URL!/?view=patient
   echo Public nurse:   !PUBLIC_HTTPS_URL!/?view=nurse
 ) else (

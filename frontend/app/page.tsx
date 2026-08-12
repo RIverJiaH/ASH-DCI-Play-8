@@ -17,8 +17,9 @@ import {
   type TaskStatus,
 } from "../lib/brain-care";
 import { DEMO_PATIENTS } from "../lib/demo-patients";
+import DciDemo from "./DciDemo";
 
-type View = "patient" | "nurse";
+type View = "dci" | "patient" | "nurse";
 type InputMode = "simulation" | "openbci";
 
 const CONFIDENCE_BY_STEP = [0.91, 0.88, 0.93];
@@ -220,7 +221,7 @@ const OFFLINE_BCI_STATUS: BciBridgeStatus = {
 };
 
 export default function Home() {
-  const [activeView, setActiveView] = useState<View>("patient");
+  const [activeView, setActiveView] = useState<View>("dci");
   const [tasks, setTasks] = useState<CareTask[]>(DEFAULT_TASKS);
   const [events, setEvents] = useState<AuditEvent[]>(DEFAULT_EVENTS);
   const [selectedTaskId, setSelectedTaskId] = useState("task-a01");
@@ -295,9 +296,9 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     const requestedView = new URLSearchParams(window.location.search).get("view");
-    if (requestedView === "nurse" || requestedView === "patient") {
-      setActiveView(requestedView);
-    }
+    const viewTimer = requestedView === "dci" || requestedView === "nurse" || requestedView === "patient"
+      ? window.setTimeout(() => setActiveView(requestedView), 0)
+      : undefined;
     apiRequest<DemoState>("/api/demo")
       .then((state) => {
         if (cancelled) return;
@@ -310,6 +311,7 @@ export default function Home() {
       });
     return () => {
       cancelled = true;
+      if (viewTimer !== undefined) window.clearTimeout(viewTimer);
     };
   }, []);
 
@@ -746,19 +748,27 @@ export default function Home() {
         <div className="brand" aria-label="脑护通">
           <span className="brand-mark" aria-hidden="true">脑</span>
           <div>
-            <strong className="brand-name">脑护通</strong>
-            <span className="brand-role">AI临床情境辅助 Demo V3</span>
+            <strong className="brand-name">脑脉护通</strong>
+            <span className="brand-role">SAH-DCI智能预警系统 · 赛道7演示版</span>
           </div>
         </div>
 
         <nav className="view-switcher" aria-label="切换演示端">
           <button
             type="button"
+            className={activeView === "dci" ? "is-active" : ""}
+            aria-pressed={activeView === "dci"}
+            onClick={() => changeView("dci")}
+          >
+            DCI预警总览
+          </button>
+          <button
+            type="button"
             className={activeView === "patient" ? "is-active" : ""}
             aria-pressed={activeView === "patient"}
             onClick={() => changeView("patient")}
           >
-            患者端
+            患者脑控端
           </button>
           <button
             type="button"
@@ -766,7 +776,7 @@ export default function Home() {
             aria-pressed={activeView === "nurse"}
             onClick={() => changeView("nurse")}
           >
-            护理端
+            护理任务端
             {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}
           </button>
         </nav>
@@ -777,7 +787,9 @@ export default function Home() {
         </div>
       </header>
 
-      {activeView === "patient" ? (
+      {activeView === "dci" ? (
+        <DciDemo onOpenPatientView={() => changeView("patient")} onOpenNurseView={() => changeView("nurse")} />
+      ) : activeView === "patient" ? (
         <main className="patient-layout">
           <section className="patient-workspace" aria-labelledby="patient-title">
             <header className="surface-header patient-header">
