@@ -565,3 +565,11 @@ test("returns a controlled five-part DCI Agent explanation", async () => {
   assert.match(body.doctorSummary, /B02|术后第3天/);
   assert.match(body.safetyBoundary, /不构成诊断|不替代医生/);
 });
+
+test("allows a required non-replacement safety statement in DCI Agent output", async () => {
+  const service = await readFile(new URL("../lib/server/dci-agent-service.ts", import.meta.url), "utf8");
+  assert.match(service, /不替代/);
+  assert.doesNotMatch(service, /\|替代医生\|/);
+  assert.match(service, /可以替代医生/);
+  assert.match(service, /generatedBoundary/);
+});

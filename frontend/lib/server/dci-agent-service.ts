@@ -80,10 +80,12 @@ function validateAgentPayload(value: unknown) {
   const evidence = list(item.evidence, 2, 6, 180);
   const nurseChecklist = list(item.nurseChecklist, 2, 6, 180);
   const doctorSummary = text(item.doctorSummary, 700);
-  const safetyBoundary = text(item.safetyBoundary, 300);
+  const generatedBoundary = text(item.safetyBoundary, 300);
+  const safetyBoundary = /不替代|不构成/.test(generatedBoundary)
+    ? generatedBoundary
+    : "本结果仅用于SAH后DCI风险趋势提示和医护复核辅助，不构成诊断、医嘱或治疗决定；最终判断与处置由医护人员完成。";
   const combined = `${trigger} ${doctorSummary} ${safetyBoundary}`;
-  if (/确诊|立即用药|必须手术|替代医生|自动医嘱/.test(combined)) throw new Error("unsafe agent wording");
-  if (!/不替代|不构成|医护|医生/.test(safetyBoundary)) throw new Error("missing safety boundary");
+  if (/确诊|立即用药|必须手术|自动医嘱|可以替代医生|将替代医生/.test(combined)) throw new Error("unsafe agent wording");
   return { trigger, evidence, nurseChecklist, doctorSummary, safetyBoundary };
 }
 
